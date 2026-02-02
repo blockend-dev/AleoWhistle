@@ -168,5 +168,14 @@ program whistleblowing.aleo {
         }
     }
 
-   
+    // Management functions
+    async transition add_reviewer(reviewer: address)->Future {
+        return  finalize_add_reviewer(self.caller, reviewer);
+    }
+
+    async function finalize_add_reviewer(caller: address, reviewer: address) {
+        let is_admin: bool = admins.get_or_use(caller, false);
+        assert(is_admin);
+        reviewers.set(reviewer, true);
+    }
 }
