@@ -6,6 +6,8 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Hackathon-Project-orange)
 
+DEPLOYED CONTRACT ON TESTNET(https://testnet.explorer.provable.com/program/whistleblowing.aleo)
+
 ## 🎯 Overview
 
 AleoWhistle is a decentralized, anonymous whistleblowing system built on the Aleo blockchain. It enables secure, private reporting of misconduct while ensuring data integrity and transparency through zero-knowledge cryptography.

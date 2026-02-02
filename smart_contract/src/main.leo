@@ -36,6 +36,9 @@ program whistleblowing.aleo {
     // Global Stats counters (Key 0u8 for total, 1u8 for pending, 2u8 for resolved)
     mapping stats: u8 => u64;
 
+    @noupgrade
+    async constructor() {}
+
     // Initialize the system
     async transition initialize()->Future {
         return finalize_initialize(self.caller);
