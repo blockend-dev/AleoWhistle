@@ -165,4 +165,4 @@ The system maintains three counters:
 
 MIT License - see [LICENSE](LICENSE) file for details
 
-**Built with ❤️ for the Aleo Hackathon | Zero Knowledge, Maximum Impact**
+**Built with ❤️ on ALEO**
