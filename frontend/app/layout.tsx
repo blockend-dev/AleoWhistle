@@ -38,12 +38,11 @@ export default function RootLayout({
         new PuzzleWalletAdapter(),
         new LeoWalletAdapter(),
         new FoxWalletAdapter(),
-        new SoterWalletAdapter(),
       ]}
       autoConnect={true}
       network={Network.TESTNET}
       decryptPermission={DecryptPermission.UponRequest}
-  programs={["credits.aleo", "hello_world.aleo", "test_credit_me.aleo"]}
+  programs={["whistleblowing1.aleo"]}
       onError={error => console.error(error.message)}
     >
       <WalletModalProvider>

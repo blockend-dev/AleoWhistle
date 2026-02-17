@@ -1,26 +1,70 @@
 @import "tailwindcss";
 
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --cyber-dark: #0a0b0e;
+  --cyber-darker: #050608;
+  --cyber-black: #000000;
+  --neon-green: #00ff9d;
+  --neon-blue: #00b8ff;
+  --neon-red: #ff3b3b;
+  --neon-purple: #b300ff;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-cyber-dark text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.cyber-grid {
+  background-image: 
+    linear-gradient(rgba(0, 255, 157, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 157, 0.05) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+.glitch-text {
+  text-shadow: 0.05em 0 0 var(--neon-red), -0.05em -0.025em 0 var(--neon-blue);
+  animation: glitch 725ms infinite;
+}
+
+@keyframes glitch {
+  0% { text-shadow: 0.05em 0 0 var(--neon-red), -0.05em -0.025em 0 var(--neon-blue); }
+  15% { text-shadow: -0.05em -0.025em 0 var(--neon-red), 0.025em 0.05em 0 var(--neon-blue); }
+  50% { text-shadow: 0.025em 0.05em 0 var(--neon-red), -0.05em -0.025em 0 var(--neon-blue); }
+  100% { text-shadow: 0.05em 0 0 var(--neon-red), -0.05em -0.025em 0 var(--neon-blue); }
+}
+
+.terminal-window {
+  @apply bg-cyber-darker border border-neon-green/30 rounded-lg p-6 font-mono;
+  box-shadow: 0 0 20px rgba(0, 255, 157, 0.2);
+}
+
+.terminal-prompt::before {
+  content: "$ ";
+  @apply text-neon-green;
+}
+
+.terminal-response::before {
+  content: "> ";
+  @apply text-neon-blue;
+}
+
+.alert-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
