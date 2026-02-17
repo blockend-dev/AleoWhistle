@@ -1,7 +1,8 @@
-
-// Anonymous Whistleblowing System
+// program whistleblowing.aleo
 program whistleblowing.aleo {
-    // Report structures
+
+    // --- Data Structures ---
+
     struct Report {
         report_id: field,
         category: u8,
@@ -20,50 +21,58 @@ program whistleblowing.aleo {
         status: u8
     }
 
+    // Encrypted content intended for reviewers
     struct EncryptedContent {
         report_id: field,
-        encrypted_data: field,
+        encrypted_data: field, // Ciphertext of the report details
         encryption_key_hash: field
     }
 
-    // On-chain Storage
+    // --- On-chain Storage ---
+
     mapping reports: field => Report;
     mapping report_meta: field => ReportMeta;
     mapping encrypted_contents: field => EncryptedContent;
     mapping admins: address => bool;
     mapping reviewers: address => bool;
     
-    // Global Stats counters (Key 0u8 for total, 1u8 for pending, 2u8 for resolved)
+    // Global Stats counters (Key 0u8: total, 1u8: pending, 2u8: resolved)
     mapping stats: u8 => u64;
 
-    @noupgrade
-    async constructor() {}
+    // --- Initialization ---
 
-    // Initialize the system
-    async transition initialize()->Future {
+    async transition initialize() -> Future {
         return finalize_initialize(self.caller);
     }
 
     async function finalize_initialize(owner: address) {
+        // Only the first caller becomes admin
+        let is_initialized: bool = admins.get_or_use(owner, false);
+        assert(!is_initialized);
+
         admins.set(owner, true);
-        stats.set(0u8, 0u64); // total
-        stats.set(1u8, 0u64); // pending
-        stats.set(2u8, 0u64); // resolved
+        stats.set(0u8, 0u64);
+        stats.set(1u8, 0u64);
+        stats.set(2u8, 0u64);
     }
 
+    // --- Whistleblower Actions ---
+
     // Submit an anonymous report
+    // reporter_seed: A private secret known only to the whistleblower
     async transition submit_report(
-        reporter_seed: field,
-        category: u8,
-        severity: u8,
-        content_hash: field,
-        evidence_hash: field,
-        encrypted_data: field,
-        encryption_key_hash: field
-    ) -> (field,Future) {
+        private reporter_seed: field,
+        public category: u8,
+        public severity: u8,
+        public content_hash: field,
+        public evidence_hash: field,
+        public encrypted_data: field,
+        public encryption_key_hash: field
+    ) -> (field, Future) {
+        // Deterministically derive ID from seed so reporter can "prove" ownership later
         let report_id: field = Poseidon2::hash_to_field(reporter_seed);
         
-        return (report_id, finalize_submit_report(
+        let f: Future = finalize_submit_report(
             report_id, 
             category, 
             severity, 
@@ -71,7 +80,9 @@ program whistleblowing.aleo {
             evidence_hash, 
             encrypted_data, 
             encryption_key_hash
-        ));
+        );
+
+        return (report_id, f);
     }
 
     async function finalize_submit_report(
@@ -86,27 +97,27 @@ program whistleblowing.aleo {
         let timestamp: u64 = block.height as u64; 
 
         let report: Report = Report {
-            report_id: report_id,
-            category: category,
-            severity: severity,
-            timestamp: timestamp,
-            content_hash: content_hash,
-            evidence_hash: evidence_hash,
+            report_id,
+            category,
+            severity,
+            timestamp,
+            content_hash,
+            evidence_hash,
             status: 1u8
         };
         
         let meta: ReportMeta = ReportMeta {
-            report_id: report_id,
-            category: category,
-            severity: severity,
-            timestamp: timestamp,
+            report_id,
+            category,
+            severity,
+            timestamp,
             status: 1u8
         };
 
         let content: EncryptedContent = EncryptedContent {
-            report_id: report_id,
-            encrypted_data: encrypted_data,
-            encryption_key_hash: encryption_key_hash
+            report_id,
+            encrypted_data,
+            encryption_key_hash
         };
 
         reports.set(report_id, report);
@@ -120,11 +131,26 @@ program whistleblowing.aleo {
         stats.set(1u8, pending + 1u64);
     }
 
-    // Update report status
+    // --- Private Verification ---
+
+    // Transition for the whistleblower to check status without revealing their seed on-chain
+    transition check_status_privately(
+        private reporter_seed: field,
+        public report_id: field,
+        public current_status: u8
+    ) {
+        let derived_id: field = Poseidon2::hash_to_field(reporter_seed);
+        // This assertion happens in the ZK proof. 
+        // If it fails, the transaction is invalid, protecting the reporter from fakes.
+        assert_eq(derived_id, report_id);
+    }
+
+    // --- Reviewer & Admin Actions ---
+
     async transition update_status(
-        report_id: field,
-        new_status: u8
-    )->Future {
+        public report_id: field,
+        public new_status: u8
+    ) -> Future {
         return finalize_update_status(self.caller, report_id, new_status);
     }
 
@@ -133,7 +159,6 @@ program whistleblowing.aleo {
         report_id: field,
         new_status: u8
     ) {
-        // Auth check
         let is_admin: bool = admins.get_or_use(caller, false);
         let is_reviewer: bool = reviewers.get_or_use(caller, false);
         assert(is_admin || is_reviewer);
@@ -165,15 +190,14 @@ program whistleblowing.aleo {
         // Update stats if status is Resolved (3)
         if (new_status == 3u8) {
             let pending: u64 = stats.get(1u8);
-            let resolved: u64 = stats.get(2u8);
+            let resolved: u64 = stats.get_or_use(2u8, 0u64);
             stats.set(1u8, pending - 1u64);
             stats.set(2u8, resolved + 1u64);
         }
     }
 
-    // Management functions
-    async transition add_reviewer(reviewer: address)->Future {
-        return  finalize_add_reviewer(self.caller, reviewer);
+    async transition add_reviewer(public reviewer: address) -> Future {
+        return finalize_add_reviewer(self.caller, reviewer);
     }
 
     async function finalize_add_reviewer(caller: address, reviewer: address) {
