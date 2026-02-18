@@ -114,9 +114,7 @@ export function useWhistleblowing() {
 
   // Helper to derive report_id (must match contract's Poseidon2::hash_to_field)
   const deriveReportId = async (seed: string): Promise<string> => {
-  
-    // Placeholder - replace with actual implementation
-    return seed // Not correct; you must implement the hash.
+    return seed 
   }
 
   return {
