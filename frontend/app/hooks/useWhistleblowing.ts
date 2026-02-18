@@ -1,74 +1,69 @@
+"use client"
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
+import { cidToAleoField } from "@/app/lib/crypto";
+
 export function useWhistleblowing() {
-  const { executeTransaction, transactionStatus } = useWallet()
+  const { executeTransaction, transactionStatus } = useWallet();
 
   const pollTransaction = async (temporaryId: string): Promise<string> => {
     return new Promise((resolve, reject) => {
       const interval = setInterval(async () => {
         try {
-          const status = await transactionStatus?.(temporaryId)
-          
-          if (!status) return
+          const status = await transactionStatus?.(temporaryId);
+          if (!status) return;
 
           if (status.status === "Accepted" && status.transactionId) {
-            console.log(status.transactionId, 'final tx id in poll')
-            clearInterval(interval)
-            resolve(status.transactionId) 
-          } else if (status.status !== "pending") {
-            clearInterval(interval)
-            reject(new Error(`Transaction ${status.status}`))
+            clearInterval(interval);
+            resolve(status.transactionId);
+          } else if (status.status === "Failed" || status.status === "Aborted") {
+            clearInterval(interval);
+            reject(new Error(`Transaction ${status.status}`));
           }
         } catch (error) {
-          clearInterval(interval)
-          reject(error)
+          clearInterval(interval);
+          reject(error);
         }
-      }, 2000)
-    })
-  }
+      }, 3000);
+    });
+  };
 
   const submitReport = async ({
     seed,
     category,
     severity,
     contentHash,
-    evidenceHash,
-    encryptedData,
-    encryptionKeyHash
+    evidenceCID,
+    adminKeyField,    // Encrypted AES key for Admin
+    reviewerKeyField  // Encrypted AES key for Reviewer
   }: any) => {
     try {
-      // Execute the transaction
+      const evidenceField = cidToAleoField(evidenceCID);
+
       const tx = await executeTransaction({
         program: "whistleblowing1.aleo",
         function: "submit_report",
         inputs: [
-          seed,
-          category.toString(),
-          severity.toString(),
-          contentHash,
-          evidenceHash,
-          encryptedData,
-          encryptionKeyHash
+          `${seed}field`,
+          `${category}u8`,
+          `${severity}u8`,
+          `${contentHash}field`,
+          `${evidenceField}field`,      // evidence_hash
+          `${evidenceField}field`,      // encrypted_data (pointing to same CID)
+          `${adminKeyField}field`,      // admin_key
+          `${reviewerKeyField}field`    // reviewer_key
         ],
-        fee: 100000,
+        fee: 1500000,
         privateFee: false,
-      })
+      });
 
-      const temporaryId = typeof tx === "string" ? tx : tx?.transactionId
-
-      if (!temporaryId) {
-        throw new Error("No transaction ID returned")
-      }
-
-      // Poll for final acceptance
-      const finalTxId = await pollTransaction(temporaryId)
-      const reportId = await deriveReportId(seed) 
-
-      return { reportId, finalTxId }
+      const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
+      const finalTxId = await pollTransaction(temporaryId);
+      return { finalTxId };
     } catch (error) {
-      console.error('Submit report failed:', error)
-      throw error
+      console.error('Submit report failed:', error);
+      throw error;
     }
-  }
+  };
 
   const updateStatus = async (reportId: string, newStatus: number) => {
     try {
@@ -114,7 +109,7 @@ export function useWhistleblowing() {
 
   // Helper to derive report_id (must match contract's Poseidon2::hash_to_field)
   const deriveReportId = async (seed: string): Promise<string> => {
-    return seed 
+    return seed
   }
 
   return {

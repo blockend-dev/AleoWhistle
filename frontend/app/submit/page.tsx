@@ -3,10 +3,10 @@
 import { useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Lock, AlertCircle, CheckCircle, Shield } from 'lucide-react'
-import { useWhistleblowing } from '@/hooks/useWhistleblowing'
-import { useIPFS } from '@/hooks/useIPFS'
-import { generateSeed, encryptForReviewer } from '@/lib/crypto'
-
+import { useWhistleblowing } from '@/app/hooks/useWhistleblowing'
+import { useIPFS } from '@/app/hooks/useIPFS'
+import { generateSeed, encryptForReviewer, encryptKeyForAddress, cidToAleoField } from '@/app/lib/crypto'
+import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 export default function SubmitPage() {
   const [step, setStep] = useState(1)
   const [report, setReport] = useState({
@@ -26,48 +26,41 @@ export default function SubmitPage() {
     onDrop: (files) => setReport({ ...report, files: [...report.files, ...files] })
   })
 
-  const handleSubmit = async () => {
-    setSubmitting(true)
-    try {
-      // Step 1: Generate random seed
-      const seed = generateSeed()
-      
-      // Step 2: Encrypt content for reviewers
-      const reviewerPublicKey = process.env.NEXT_PUBLIC_REVIEWER_PUBLIC_KEY!
-      const encrypted = await encryptForReviewer(
-        JSON.stringify({
-          title: report.title,
-          description: report.description,
-          timestamp: Date.now()
-        }),
-        reviewerPublicKey
-      )
+ const handleSubmit = async () => {
+  setSubmitting(true);
+  try {
+    const seed = generateSeed();
+    const caseKey = generate31ByteKey(); // Simple 31-byte random bigint
 
-      // Step 3: Upload encrypted files to IPFS
-      const evidenceCID = await uploadToIPFS(report.files)
-      
-      // Step 4: Hash content for verification
-      const contentHash = await hashContent(encrypted)
-      
-      // Step 5: Submit to Aleo
-      const  { reportId, finalTxId } = await submitReport({
-        seed,
-        category: report.category,
-        severity: report.severity,
-        contentHash,
-        evidenceHash: evidenceCID,
-        encryptedData: encrypted.data,
-        encryptionKeyHash: encrypted.keyHash
-      })
+    // Layer 1: Encrypt data for IPFS (Standard AES-GCM)
+    const reportCID = await uploadEncryptedToIPFS(report, caseKey);
 
-     setResult({ reportId, seed, txId: finalTxId })
-    setStep(3)
-    } catch (error) {
-      console.error('Submission failed:', error)
-    } finally {
-      setSubmitting(false)
-    }
+    // Layer 2: Encrypt Case Key for Admin & Reviewer
+    const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
+    const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
+
+    // Step 3: Execute Transaction
+    // Note: Both admin and reviewer share the same ephemeral_key for simplicity, 
+    // or you can generate two separate ones.
+    await submitReport({
+      seed,
+      category: report.category,
+      severity: report.severity,
+      contentHash: await hashContent(caseKey),
+      evidenceHash: reportCID,
+      encryptedData: cidToAleoField(reportCID),
+      adminKey: adminData.encryptedKey,
+      reviewerKey: reviewerData.encryptedKey,
+      ephemeralKey: adminData.ephemeralPublicKey // Store this so they can decrypt
+    });
+
+    setStep(3);
+  } catch (err) {
+    console.error("Submission failed", err);
+  } finally {
+    setSubmitting(false);
   }
+};
 
   return (
     <div className="min-h-screen pt-24 px-4 cyber-grid">

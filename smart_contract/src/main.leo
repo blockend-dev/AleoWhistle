@@ -27,6 +27,7 @@ program whistleblowing1.aleo {
         encrypted_data: field,   // IPFS CID of the AES-encrypted report
         admin_key: field,        // AES Key encrypted with Admin's Public Key
         reviewer_key: field      // AES Key encrypted with Reviewer's Public Key
+        ephemeral_key: field
     }
 
    // --- On-chain Storage ---
@@ -70,7 +71,8 @@ program whistleblowing1.aleo {
         public evidence_hash: field,
         public encrypted_data: field,    // IPFS CID
         public admin_key: field,        
-        public reviewer_key: field   
+        public reviewer_key: field,
+        public ephemeral_key: field
     ) -> (field, Future) {
         let report_id: field = Poseidon2::hash_to_field(reporter_seed);
         
@@ -82,7 +84,8 @@ program whistleblowing1.aleo {
             evidence_hash, 
             encrypted_data, 
             admin_key,
-            reviewer_key
+            reviewer_key,
+            ephemeral_key
         );
 
         return (report_id, f);
@@ -96,7 +99,8 @@ program whistleblowing1.aleo {
         evidence_hash: field,
         encrypted_data: field,
         admin_key: field,
-        reviewer_key: field
+        reviewer_key: field,
+        ephemeral_key : field
     ) {
         let timestamp: u64 = block.height as u64; 
 
@@ -123,7 +127,8 @@ program whistleblowing1.aleo {
             report_id,
             encrypted_data,
             admin_key,
-            reviewer_key
+            reviewer_key,
+            ephemeral_key
         };
 
         reports.set(report_id, report);
