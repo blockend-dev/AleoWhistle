@@ -69,5 +69,32 @@ export default function SubmitPage() {
     }
   }
 
-  
+  return (
+    <div className="min-h-screen pt-24 px-4 cyber-grid">
+      <div className="max-w-3xl mx-auto">
+        {/* Progress Steps */}
+        <div className="mb-12">
+          <div className="flex justify-between items-center">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center">
+                <div className={`
+                  w-10 h-10 rounded-full border-2 flex items-center justify-center font-mono
+                  ${step >= i ? 'border-neon-green text-neon-green' : 'border-gray-600 text-gray-600'}
+                `}>
+                  {step > i ? <CheckCircle className="h-5 w-5" /> : i}
+                </div>
+                {i < 3 && (
+                  <div className={`w-24 h-0.5 mx-2 ${step > i ? 'bg-neon-green' : 'bg-gray-600'}`} />
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between mt-2 text-sm font-mono">
+            <span>Write Report</span>
+            <span>Encrypt & Upload</span>
+            <span>Confirmation</span>
+          </div>
+        </div>
+
+      )
 }
