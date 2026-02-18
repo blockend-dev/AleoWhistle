@@ -1,13 +1,14 @@
-'use client'
+  'use client'
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { Wallet, Shield, Menu, X } from 'lucide-react'
-import { useWallet } from '@/hooks/useWallet'
+import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
+import { WalletMultiButton } from "@provablehq/aleo-wallet-adaptor-react-ui";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
-  const { wallet, connect, disconnect, isConnected } = useWallet()
+  const { address, connect, disconnect, connected } = useWallet()
 
   return (
     <nav className="fixed top-0 w-full z-50 bg-cyber-darker/90 backdrop-blur-md border-b border-neon-green/20">
@@ -26,18 +27,12 @@ export function Navbar() {
             <Link href="/dashboard" className="hover:text-neon-green transition">Dashboard</Link>
             <Link href="/about" className="hover:text-neon-green transition">About</Link>
             
-            {!isConnected ? (
-              <button
-                onClick={connect}
-                className="flex items-center space-x-2 bg-neon-green/10 hover:bg-neon-green/20 text-neon-green px-4 py-2 rounded-lg border border-neon-green/50 transition"
-              >
-                <Wallet className="h-4 w-4" />
-                <span>Connect Wallet</span>
-              </button>
+            {!connected ? (
+             <WalletMultiButton />
             ) : (
               <div className="flex items-center space-x-4">
                 <span className="text-sm text-neon-green/70">
-                  {wallet?.address.slice(0, 6)}...{wallet?.address.slice(-4)}
+                  {address?.slice(0, 6)}...{address?.slice(-4)}
                 </span>
                 <button
                   onClick={disconnect}
