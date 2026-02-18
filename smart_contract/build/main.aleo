@@ -51,6 +51,9 @@ function initialize:
 
 finalize initialize:
     input r0 as address.public;
+    get.or_use admins[r0] false into r1;
+    not r1 into r2;
+    assert.eq r2 true;
     set true into admins[r0];
     set 0u64 into stats[0u8];
     set 0u64 into stats[1u8];
@@ -58,12 +61,12 @@ finalize initialize:
 
 function submit_report:
     input r0 as field.private;
-    input r1 as u8.private;
-    input r2 as u8.private;
-    input r3 as field.private;
-    input r4 as field.private;
-    input r5 as field.private;
-    input r6 as field.private;
+    input r1 as u8.public;
+    input r2 as u8.public;
+    input r3 as field.public;
+    input r4 as field.public;
+    input r5 as field.public;
+    input r6 as field.public;
     hash.psd2 r0 into r7 as field;
     async submit_report r7 r1 r2 r3 r4 r5 r6 into r8;
     output r7 as field.private;
@@ -91,9 +94,16 @@ finalize submit_report:
     add r12 1u64 into r14;
     set r14 into stats[1u8];
 
-function update_status:
+function check_status_privately:
     input r0 as field.private;
-    input r1 as u8.private;
+    input r1 as field.public;
+    input r2 as u8.public;
+    hash.psd2 r0 into r3 as field;
+    assert.eq r3 r1;
+
+function update_status:
+    input r0 as field.public;
+    input r1 as u8.public;
     async update_status self.caller r0 r1 into r2;
     output r2 as whistleblowing.aleo/update_status.future;
 
@@ -113,7 +123,7 @@ finalize update_status:
     is.eq r2 3u8 into r9;
     branch.eq r9 false to end_then_0_0;
     get stats[1u8] into r10;
-    get stats[2u8] into r11;
+    get.or_use stats[2u8] 0u64 into r11;
     sub r10 1u64 into r12;
     set r12 into stats[1u8];
     add r11 1u64 into r13;
@@ -123,7 +133,7 @@ finalize update_status:
     position end_otherwise_0_1;
 
 function add_reviewer:
-    input r0 as address.private;
+    input r0 as address.public;
     async add_reviewer self.caller r0 into r1;
     output r1 as whistleblowing.aleo/add_reviewer.future;
 
@@ -133,6 +143,3 @@ finalize add_reviewer:
     get.or_use admins[r0] false into r2;
     assert.eq r2 true;
     set true into reviewers[r1];
-
-constructor:
-    assert.eq edition 0u16;

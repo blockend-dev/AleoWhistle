@@ -1,5 +1,5 @@
 // program whistleblowing.aleo
-program whistleblowing.aleo {
+program whistleblowing1.aleo {
 
     // --- Data Structures ---
 
@@ -24,17 +24,19 @@ program whistleblowing.aleo {
     // Encrypted content intended for reviewers
     struct EncryptedContent {
         report_id: field,
-        encrypted_data: field, // Ciphertext of the report details
-        encryption_key_hash: field
+        encrypted_data: field,   // IPFS CID of the AES-encrypted report
+        admin_key: field,        // AES Key encrypted with Admin's Public Key
+        reviewer_key: field      // AES Key encrypted with Reviewer's Public Key
     }
 
-    // --- On-chain Storage ---
+   // --- On-chain Storage ---
 
     mapping reports: field => Report;
     mapping report_meta: field => ReportMeta;
     mapping encrypted_contents: field => EncryptedContent;
     mapping admins: address => bool;
     mapping reviewers: address => bool;
+    mapping stats: u8 => u64;
     
     // Global Stats counters (Key 0u8: total, 1u8: pending, 2u8: resolved)
     mapping stats: u8 => u64;
@@ -66,10 +68,10 @@ program whistleblowing.aleo {
         public severity: u8,
         public content_hash: field,
         public evidence_hash: field,
-        public encrypted_data: field,
-        public encryption_key_hash: field
+        public encrypted_data: field,    // IPFS CID
+        public admin_key: field,        
+        public reviewer_key: field   
     ) -> (field, Future) {
-        // Deterministically derive ID from seed so reporter can "prove" ownership later
         let report_id: field = Poseidon2::hash_to_field(reporter_seed);
         
         let f: Future = finalize_submit_report(
@@ -79,7 +81,8 @@ program whistleblowing.aleo {
             content_hash, 
             evidence_hash, 
             encrypted_data, 
-            encryption_key_hash
+            admin_key,
+            reviewer_key
         );
 
         return (report_id, f);
@@ -92,7 +95,8 @@ program whistleblowing.aleo {
         content_hash: field,
         evidence_hash: field,
         encrypted_data: field,
-        encryption_key_hash: field
+        admin_key: field,
+        reviewer_key: field
     ) {
         let timestamp: u64 = block.height as u64; 
 
@@ -114,17 +118,18 @@ program whistleblowing.aleo {
             status: 1u8
         };
 
+        // Store the content with dual keys
         let content: EncryptedContent = EncryptedContent {
             report_id,
             encrypted_data,
-            encryption_key_hash
+            admin_key,
+            reviewer_key
         };
 
         reports.set(report_id, report);
         report_meta.set(report_id, meta);
         encrypted_contents.set(report_id, content);
 
-        // Update Stats
         let total: u64 = stats.get_or_use(0u8, 0u64);
         let pending: u64 = stats.get_or_use(1u8, 0u64);
         stats.set(0u8, total + 1u64);
