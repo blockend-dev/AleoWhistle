@@ -5,8 +5,9 @@ import { useDropzone } from 'react-dropzone'
 import { Upload, Lock, AlertCircle, CheckCircle, Shield } from 'lucide-react'
 import { useWhistleblowing } from '@/app/hooks/useWhistleblowing'
 import { useIPFS } from '@/app/hooks/useIPFS'
-import { generateSeed, encryptForReviewer, encryptKeyForAddress, cidToAleoField } from '@/app/lib/crypto'
-import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
+import { generateSeed, encryptKeyForAddress, cidToAleoField,
+   hashContent, generate31ByteKey, keyToUint8Array, encryptWithAES } from '@/app/lib/crypto'
+import Link from 'next/link'
 export default function SubmitPage() {
   const [step, setStep] = useState(1)
   const [report, setReport] = useState({
@@ -26,37 +27,36 @@ export default function SubmitPage() {
     onDrop: (files) => setReport({ ...report, files: [...report.files, ...files] })
   })
 
- const handleSubmit = async () => {
+const handleSubmit = async () => {
   setSubmitting(true);
   try {
-    const seed = generateSeed();
-    const caseKey = generate31ByteKey(); // Simple 31-byte random bigint
+    // Create the secret Case Key (The "Master Key" for this report)
+    const caseKey = generate31ByteKey(); 
+    const caseKeyBytes = keyToUint8Array(caseKey);
 
-    // Layer 1: Encrypt data for IPFS (Standard AES-GCM)
-    const reportCID = await uploadEncryptedToIPFS(report, caseKey);
+    // Use the bytes version for the actual AES-GCM algorithm
+    const reportBlob = await encryptWithAES(JSON.stringify(report), caseKeyBytes);
+    const reportCID = await uploadToIPFS(reportBlob);
 
-    // Layer 2: Encrypt Case Key for Admin & Reviewer
     const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
     const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
 
-    // Step 3: Execute Transaction
-    // Note: Both admin and reviewer share the same ephemeral_key for simplicity, 
-    // or you can generate two separate ones.
+    // Submit to Aleo
+    const seed = generateSeed(); 
     await submitReport({
       seed,
       category: report.category,
       severity: report.severity,
       contentHash: await hashContent(caseKey),
-      evidenceHash: reportCID,
-      encryptedData: cidToAleoField(reportCID),
+      evidenceCID: reportCID,
       adminKey: adminData.encryptedKey,
       reviewerKey: reviewerData.encryptedKey,
-      ephemeralKey: adminData.ephemeralPublicKey // Store this so they can decrypt
+      ephemeralKey: adminData.ephemeralPublicKey
     });
 
     setStep(3);
   } catch (err) {
-    console.error("Submission failed", err);
+    console.error(err);
   } finally {
     setSubmitting(false);
   }

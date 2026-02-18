@@ -70,6 +70,78 @@ export function cidToAleoField(cidString: string): string {
   } catch (e) {
     return "0field";
   }
+}
 
+  export function generate31ByteKey(): string {
+  const bytes = window.crypto.getRandomValues(new Uint8Array(31));
+  
+  let result = BigInt(0);
+  for (const byte of bytes) {
+    result = (result << BigInt(8)) + BigInt(byte);
+  }
+  
+  return result.toString();
+}
 
+export function keyToUint8Array(keyString: string): Uint8Array {
+  let n = BigInt(keyString);
+  const result = new Uint8Array(31);
+  for (let i = 30; i >= 0; i--) {
+    result[i] = Number(n & BigInt(0xff));
+    n >>= BigInt(8);
+  }
+  return result;
+}
+
+export async function encryptWithAES(data: string, keyBytes: Uint8Array): Promise<Blob> {
+  const encoder = new TextEncoder();
+  
+  const paddedKey = new Uint8Array(32);
+  paddedKey.set(keyBytes);
+
+  const cryptoKey = await window.crypto.subtle.importKey(
+    "raw",
+    paddedKey,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"]
+  );
+
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+  const encryptedBuffer = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv },
+    cryptoKey,
+    encoder.encode(data)
+  );
+
+  return new Blob([iv, new Uint8Array(encryptedBuffer)], { type: "application/octet-stream" });
+}
+
+export async function decryptWithAES(encryptedBlob: Blob, keyString: string): Promise<string> {
+  const arrayBuffer = await encryptedBlob.arrayBuffer();
+  const data = new Uint8Array(arrayBuffer);
+
+  const iv = data.slice(0, 12);
+  const ciphertext = data.slice(12);
+
+  const keyBytes = keyToUint8Array(keyString); // Using your previous utility
+  const paddedKey = new Uint8Array(32);
+  paddedKey.set(keyBytes);
+
+  const cryptoKey = await window.crypto.subtle.importKey(
+    "raw",
+    paddedKey,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"]
+  );
+
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: iv },
+    cryptoKey,
+    ciphertext
+  );
+
+  return new TextDecoder().decode(decryptedBuffer);
 }
