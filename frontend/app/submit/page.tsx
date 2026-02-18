@@ -17,7 +17,7 @@ export default function SubmitPage() {
     files: [] as File[]
   })
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ reportId: string; seed: string } | null>(null)
+  const [result, setResult] = useState<{ reportId: string; seed: string, txId : string } | null>(null)
 
   const { submitReport } = useWhistleblowing()
   const { uploadToIPFS } = useIPFS()
@@ -50,7 +50,7 @@ export default function SubmitPage() {
       const contentHash = await hashContent(encrypted)
       
       // Step 5: Submit to Aleo
-      const reportId = await submitReport({
+      const  { reportId, finalTxId } = await submitReport({
         seed,
         category: report.category,
         severity: report.severity,
@@ -60,8 +60,8 @@ export default function SubmitPage() {
         encryptionKeyHash: encrypted.keyHash
       })
 
-      setResult({ reportId, seed })
-      setStep(3)
+     setResult({ reportId, seed, txId: finalTxId })
+    setStep(3)
     } catch (error) {
       console.error('Submission failed:', error)
     } finally {
