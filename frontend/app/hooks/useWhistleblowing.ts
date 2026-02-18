@@ -1,4 +1,4 @@
-import { useWallet } from './useWallet'
+import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 export function useWhistleblowing() {
   const { executeTransaction, transactionStatus } = useWallet()
 
@@ -10,10 +10,10 @@ export function useWhistleblowing() {
           
           if (!status) return
 
-          if (status.status === "Accepted") {
+          if (status.status === "Accepted" && status.transactionId) {
             console.log(status.transactionId, 'final tx id in poll')
             clearInterval(interval)
-            resolve(status.transactionId) // Returns the final tx ID
+            resolve(status.transactionId) 
           } else if (status.status !== "pending") {
             clearInterval(interval)
             reject(new Error(`Transaction ${status.status}`))
