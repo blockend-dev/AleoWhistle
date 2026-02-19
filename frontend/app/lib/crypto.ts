@@ -1,5 +1,6 @@
 import { CID } from 'multiformats/cid';
-import { Address,Account } from '@provablehq/sdk';
+
+// No top-level import from '@provablehq/sdk' — it will be dynamically imported.
 
 export async function hashContent(data: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -24,40 +25,52 @@ export function generateSeed(): string {
 }
 
 export async function encryptKeyForAddress(caseKeyField: string, recipientAddress: string) {
+  // Ensure we are in a browser environment
+  if (typeof window === 'undefined') {
+    throw new Error('encryptKeyForAddress can only be called on the client side');
+  }
+
+  // Dynamically import the SDK only when needed
+  const { Address, Account } = await import('@provablehq/sdk');
+
   const ephemeral = new Account();
   const ephemeralScalar = ephemeral.privateKey().to_view_key().to_scalar();
-  
+
   const recipient = Address.from_string(recipientAddress);
   const recipientGroup = recipient.toGroup();
-  
+
   const sharedSecret = recipientGroup.scalarMultiply(ephemeralScalar);
-  
+
   const keyBI = BigInt(caseKeyField);
   const secretBI = BigInt(sharedSecret.toString());
-  
-  /** * SAFETY CHECK:
-   * Aleo Fields are roughly 252 bits. 
+
+  /** SAFETY CHECK:
+   * Aleo Fields are roughly 252 bits.
    * If (keyBI ^ secretBI) is too large, the Leo contract will crash.
    * We mask it to 250 bits to be absolutely safe.
    */
   const mask = (BigInt(1) << BigInt(250)) - BigInt(1);
   const encryptedKey = ((keyBI ^ secretBI) & mask).toString();
-  
-  // Also convert the ephemeral address to its Field representation 
-  // so it fits into the 'ephemeral_key: field' input.
-  const ephemeralField = addressToField(ephemeral.address().to_string());
-  
+
+  // Also convert the ephemeral address to its Field representation
+  const ephemeralField = await addressToField(ephemeral.address().to_string());
+
   return {
-    encryptedKey, 
-    ephemeralPublicKey: ephemeralField
+    encryptedKey,
+    ephemeralPublicKey: ephemeralField,
   };
 }
 
-export function addressToField(addressStr: string): string {
-  return Address.from_string(addressStr).toFields ().toString();
+export async function addressToField(addressStr: string): Promise<string> {
+  if (typeof window === 'undefined') {
+    throw new Error('addressToField can only be called on the client side');
+  }
+
+  const { Address } = await import('@provablehq/sdk');
+  return Address.from_string(addressStr).toFields().toString();
 }
 
-// Converts IPFS CID to a single Aleo Field 
+// Converts IPFS CID to a single Aleo Field
 export function cidToAleoField(cidString: string): string {
   try {
     const cid = CID.parse(cidString);
@@ -68,18 +81,18 @@ export function cidToAleoField(cidString: string): string {
     }
     return `${result}field`;
   } catch (e) {
-    return "0field";
+    return '0field';
   }
 }
 
-  export function generate31ByteKey(): string {
+export function generate31ByteKey(): string {
   const bytes = window.crypto.getRandomValues(new Uint8Array(31));
-  
+
   let result = BigInt(0);
   for (const byte of bytes) {
     result = (result << BigInt(8)) + BigInt(byte);
   }
-  
+
   return result.toString();
 }
 
@@ -95,27 +108,23 @@ export function keyToUint8Array(keyString: string): Uint8Array {
 
 export async function encryptWithAES(data: string, keyBytes: Uint8Array): Promise<Blob> {
   const encoder = new TextEncoder();
-  
+
   const paddedKey = new Uint8Array(32);
   paddedKey.set(keyBytes);
 
-  const cryptoKey = await window.crypto.subtle.importKey(
-    "raw",
-    paddedKey,
-    { name: "AES-GCM" },
-    false,
-    ["encrypt"]
-  );
+  const cryptoKey = await window.crypto.subtle.importKey('raw', paddedKey, { name: 'AES-GCM' }, false, [
+    'encrypt',
+  ]);
 
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
 
   const encryptedBuffer = await window.crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv },
+    { name: 'AES-GCM', iv },
     cryptoKey,
     encoder.encode(data)
   );
 
-  return new Blob([iv, new Uint8Array(encryptedBuffer)], { type: "application/octet-stream" });
+  return new Blob([iv, new Uint8Array(encryptedBuffer)], { type: 'application/octet-stream' });
 }
 
 export async function decryptWithAES(encryptedBlob: Blob, keyString: string): Promise<string> {
@@ -125,20 +134,16 @@ export async function decryptWithAES(encryptedBlob: Blob, keyString: string): Pr
   const iv = data.slice(0, 12);
   const ciphertext = data.slice(12);
 
-  const keyBytes = keyToUint8Array(keyString); // Using your previous utility
+  const keyBytes = keyToUint8Array(keyString);
   const paddedKey = new Uint8Array(32);
   paddedKey.set(keyBytes);
 
-  const cryptoKey = await window.crypto.subtle.importKey(
-    "raw",
-    paddedKey,
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"]
-  );
+  const cryptoKey = await window.crypto.subtle.importKey('raw', paddedKey, { name: 'AES-GCM' }, false, [
+    'decrypt',
+  ]);
 
   const decryptedBuffer = await window.crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv },
+    { name: 'AES-GCM', iv },
     cryptoKey,
     ciphertext
   );

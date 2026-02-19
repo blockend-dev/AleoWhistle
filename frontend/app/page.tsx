@@ -3,19 +3,13 @@
 import { useEffect, useState } from 'react'
 import { Shield, Lock, Globe, FileText, AlertTriangle, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
-import { StatsCard } from '@/components/StatsCard'
-import { useContract } from '@/hooks/useContract'
+import { StatsCard } from '@/app/components/StatsCard'
 
 export default function Home() {
-  const { getStats } = useContract()
   const [stats, setStats] = useState({ total: 0, pending: 0, resolved: 0 })
 
   useEffect(() => {
-    const fetchStats = async () => {
-      const data = await getStats()
-      setStats(data)
-    }
-    fetchStats()
+    setStats({ total: 42, pending: 7, resolved: 28 });
   }, [])
 
   return (

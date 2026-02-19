@@ -1,9 +1,8 @@
-// app/layout.tsx
+'use client'
 import type { Metadata } from 'next'
 import { Inter, Fira_Code } from 'next/font/google'
 import './globals.css'
-import { Navbar } from '@/components/Navbar'
-import { Providers } from '@/components/Providers'
+import { Navbar } from '@/app/components/Navbar'
 import { AleoWalletProvider } from '@provablehq/aleo-wallet-adaptor-react';
 import { WalletModalProvider } from '@provablehq/aleo-wallet-adaptor-react-ui';
 import { PuzzleWalletAdapter } from '@provablehq/aleo-wallet-adaptor-puzzle';
@@ -18,10 +17,10 @@ import '@provablehq/aleo-wallet-adaptor-react-ui/dist/styles.css';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const firaCode = Fira_Code({ subsets: ['latin'], variable: '--font-fira' })
 
-export const metadata: Metadata = {
-  title: 'WhistleCrypt - Anonymous Reporting',
-  description: 'Secure, private whistleblowing on Aleo blockchain',
-}
+// export const metadata: Metadata = {
+//   title: 'WhistleCrypt - Anonymous Reporting',
+//   description: 'Secure, private whistleblowing on Aleo blockchain',
+// }
 
 export default function RootLayout({
   children,
@@ -42,18 +41,16 @@ export default function RootLayout({
       autoConnect={true}
       network={Network.TESTNET}
       decryptPermission={DecryptPermission.UponRequest}
-  programs={["whistleblowing1.aleo"]}
+      programs={["whistleblowing1.aleo"]}
       onError={error => console.error(error.message)}
     >
       <WalletModalProvider>
-      <Providers>
           <Navbar />
           <main className="min-h-screen bg-gradient-to-br from-cyber-dark via-cyber-darker to-cyber-black">
             {children}
           </main>
-        </Providers>
       </WalletModalProvider>
-    </AleoWalletProvider
+    </AleoWalletProvider>
       </body>
     </html>
   )
