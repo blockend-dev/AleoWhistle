@@ -1,6 +1,7 @@
 import { CID } from 'multiformats/cid';
 
-// No top-level import from '@provablehq/sdk' — it will be dynamically imported.
+const PROVABLE_API_URL = 'https://api.provable.com/v2/testnet';
+
 
 export async function hashContent(data: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -151,3 +152,49 @@ export async function decryptWithAES(encryptedBlob: Blob, keyString: string): Pr
 
   return new TextDecoder().decode(decryptedBuffer);
 }
+
+
+export const getBlockchainReceipt = async (transactionId: string) => {
+  const url = `${PROVABLE_API_URL}/transaction/${transactionId}`;
+  
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json' },
+  });
+
+  console.log("Fetching blockchain receipt from:", url, "Response status:", response.status);
+  if (!response.ok) {
+    throw new Error(`Blockchain query failed: ${response.statusText}`);
+  }
+
+  return response.json();
+};
+
+export const parseReportIdFromReceipt = (receipt: any): string => {
+  try {
+    const transitions = receipt?.execution?.transitions || [];
+    
+    // Specifically look for our report submission logic
+    const reportTx = transitions.find((t: any) => t.function === "submit_report");
+    console.log("Parsing receipt transitions:", transitions);
+    if (!reportTx) {
+      throw new Error("No report submission transition found in receipt.");
+    }
+
+    const futureOutput = reportTx.outputs?.find((o: any) => o.type === "future");
+    console.log("Future output found:", futureOutput);
+    if (futureOutput?.value) {
+      // Matches the numeric part of something like "[ 8234...567field ]"
+      const match = futureOutput.value.match(/arguments:\s*\[\s*(\d+)field/);
+      
+      if (match?.[1]) {
+        console.log("Successfully identified Report ID:", match[1]);
+        return match[1];
+      }
+    }
+    
+    return "";
+  } catch (err) {
+    console.error("Data extraction error:", err);
+    return "";
+  }
+};

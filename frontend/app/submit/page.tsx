@@ -6,7 +6,9 @@ import { Upload, Lock, AlertCircle, CheckCircle, Shield } from 'lucide-react'
 import { useWhistleblowing } from '@/app/hooks/useWhistleblowing'
 import { useIPFS } from '@/app/hooks/useIPFS'
 import { generateSeed, encryptKeyForAddress, cidToAleoField,
-   hashContent, generate31ByteKey, keyToUint8Array, encryptWithAES } from '@/app/lib/crypto'
+   hashContent, generate31ByteKey, keyToUint8Array, encryptWithAES, 
+   getBlockchainReceipt,
+   parseReportIdFromReceipt} from '@/app/lib/crypto'
 import Link from 'next/link'
 export default function SubmitPage() {
   const [step, setStep] = useState(1)
@@ -40,10 +42,9 @@ const handleSubmit = async () => {
 
     const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
     const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
-console.log("Admin Encrypted Key:", adminData, "Reviewer Encrypted Key:", reviewerData);
     // Submit to Aleo
     const seed = generateSeed(); 
-    await submitReport({
+    const { finalTxId } = await submitReport({
       seed,
       category: report.category,
       severity: report.severity,
@@ -54,6 +55,15 @@ console.log("Admin Encrypted Key:", adminData, "Reviewer Encrypted Key:", review
       ephemeralKey: adminData.ephemeralPublicKey
     });
 
+    const receipt = await getBlockchainReceipt(finalTxId);
+    const onChainId = parseReportIdFromReceipt(receipt);
+
+    console.log("Blockchain Receipt:", receipt, "Parsed Report ID:", onChainId);
+    setResult({
+      reportId: onChainId || "Pending Confirmation", 
+      seed: seed,
+      txId: finalTxId
+    });
     setStep(3);
   } catch (err) {
     console.error(err);
