@@ -41,7 +41,7 @@ export default function RootLayout({
       autoConnect={true}
       network={Network.TESTNET}
       decryptPermission={DecryptPermission.UponRequest}
-      programs={["new_whistleblowing.aleo"]}
+      programs={["new_whistleblowing_version1.aleo"]}
       onError={error => console.error(error.message)}
     >
       <WalletModalProvider>

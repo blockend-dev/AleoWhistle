@@ -1,4 +1,4 @@
-program new_whistleblowing.aleo {
+program new_whistleblowing_version1.aleo {
 
     // --- Data Structures ---
 

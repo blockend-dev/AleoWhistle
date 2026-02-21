@@ -1,4 +1,4 @@
-program new_whistleblowing.aleo;
+program new_whistleblowing_version1.aleo;
 
 struct Report:
     report_id as field;
@@ -49,7 +49,7 @@ mapping stats:
 
 function initialize:
     async initialize self.caller into r0;
-    output r0 as new_whistleblowing.aleo/initialize.future;
+    output r0 as new_whistleblowing_version1.aleo/initialize.future;
 
 finalize initialize:
     input r0 as address.public;
@@ -74,7 +74,7 @@ function submit_report:
     hash.psd2 r0 into r9 as field;
     async submit_report r9 r1 r2 r3 r4 r5 r6 r7 r8 into r10;
     output r9 as field.private;
-    output r10 as new_whistleblowing.aleo/submit_report.future;
+    output r10 as new_whistleblowing_version1.aleo/submit_report.future;
 
 finalize submit_report:
     input r0 as field.public;
@@ -111,7 +111,7 @@ function update_status:
     input r0 as field.public;
     input r1 as u8.public;
     async update_status self.caller r0 r1 into r2;
-    output r2 as new_whistleblowing.aleo/update_status.future;
+    output r2 as new_whistleblowing_version1.aleo/update_status.future;
 
 finalize update_status:
     input r0 as address.public;
@@ -141,7 +141,7 @@ finalize update_status:
 function add_reviewer:
     input r0 as address.public;
     async add_reviewer self.caller r0 into r1;
-    output r1 as new_whistleblowing.aleo/add_reviewer.future;
+    output r1 as new_whistleblowing_version1.aleo/add_reviewer.future;
 
 finalize add_reviewer:
     input r0 as address.public;

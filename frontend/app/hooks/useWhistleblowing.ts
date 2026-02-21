@@ -34,23 +34,27 @@ export function useWhistleblowing() {
     contentHash,
     evidenceCID,
     adminKeyField,    // Encrypted AES key for Admin
-    reviewerKeyField  // Encrypted AES key for Reviewer
+    reviewerKeyField,  // Encrypted AES key for Reviewer
+    ephemeralKey
   }: any) => {
     try {
+
+      console.log( contentHash, evidenceCID);
       const evidenceField = cidToAleoField(evidenceCID);
 
       const tx = await executeTransaction({
-        program: "new_whistleblowing.aleo",
+        program: "new_whistleblowing_version1.aleo",
         function: "submit_report",
         inputs: [
           `${seed}field`,
           `${category}u8`,
           `${severity}u8`,
-          `${contentHash}field`,
-          `${evidenceField}field`,      // evidence_hash
-          `${evidenceField}field`,      // encrypted_data (pointing to same CID)
+          `${contentHash}`,
+          `${evidenceField}`,      // evidence_hash
+          `${evidenceField}`,      // encrypted_data (pointing to same CID)
           `${adminKeyField}field`,      // admin_key
-          `${reviewerKeyField}field`    // reviewer_key
+          `${reviewerKeyField}field`,    // reviewer_key
+          `${ephemeralKey}`         // ephemeral_key
         ],
         fee: 1500000,
         privateFee: false,
@@ -68,7 +72,7 @@ export function useWhistleblowing() {
   const updateStatus = async (reportId: string, newStatus: number) => {
     try {
       const tx = await executeTransaction({
-        program: "new_whistleblowing.aleo",
+        program: "new_whistleblowing_version1.aleo",
         function: "update_status",
         inputs: [reportId, newStatus.toString()],
         fee: 50000,
@@ -89,7 +93,7 @@ export function useWhistleblowing() {
   const addComment = async (reportId: string, encryptedNote: string) => {
     try {
       const tx = await executeTransaction({
-        program: "new_whistleblowing.aleo",
+        program: "new_whistleblowing_version1.aleo",
         function: "add_comment",
         inputs: [reportId, encryptedNote],
         fee: 50000,

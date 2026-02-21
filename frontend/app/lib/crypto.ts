@@ -55,6 +55,7 @@ export async function encryptKeyForAddress(caseKeyField: string, recipientAddres
   // Also convert the ephemeral address to its Field representation
   const ephemeralField = await addressToField(ephemeral.address().to_string());
 
+  console.log("Ephemeral Field:", ephemeralField, "Encrypted Key:", encryptedKey);
   return {
     encryptedKey,
     ephemeralPublicKey: ephemeralField,

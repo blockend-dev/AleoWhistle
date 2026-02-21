@@ -40,7 +40,7 @@ const handleSubmit = async () => {
 
     const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
     const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
-
+console.log("Admin Encrypted Key:", adminData, "Reviewer Encrypted Key:", reviewerData);
     // Submit to Aleo
     const seed = generateSeed(); 
     await submitReport({
@@ -49,8 +49,8 @@ const handleSubmit = async () => {
       severity: report.severity,
       contentHash: await hashContent(caseKey),
       evidenceCID: reportCID,
-      adminKey: adminData.encryptedKey,
-      reviewerKey: reviewerData.encryptedKey,
+      adminKeyField: adminData.encryptedKey,
+      reviewerKeyField: reviewerData.encryptedKey,
       ephemeralKey: adminData.ephemeralPublicKey
     });
 
