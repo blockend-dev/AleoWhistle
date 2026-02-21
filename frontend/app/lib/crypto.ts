@@ -42,7 +42,7 @@ export async function encryptKeyForAddress(caseKeyField: string, recipientAddres
   const sharedSecret = recipientGroup.scalarMultiply(ephemeralScalar);
 
   const keyBI = BigInt(caseKeyField);
-  const secretBI = BigInt(sharedSecret.toString());
+  const secretBI = BigInt(sharedSecret.toString().replace(/group$/, ''));
 
   /** SAFETY CHECK:
    * Aleo Fields are roughly 252 bits.

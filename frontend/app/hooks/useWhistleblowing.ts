@@ -40,7 +40,7 @@ export function useWhistleblowing() {
       const evidenceField = cidToAleoField(evidenceCID);
 
       const tx = await executeTransaction({
-        program: "whistleblowing1.aleo",
+        program: "new_whistleblowing.aleo",
         function: "submit_report",
         inputs: [
           `${seed}field`,
@@ -68,7 +68,7 @@ export function useWhistleblowing() {
   const updateStatus = async (reportId: string, newStatus: number) => {
     try {
       const tx = await executeTransaction({
-        program: "whistleblowing.aleo",
+        program: "new_whistleblowing.aleo",
         function: "update_status",
         inputs: [reportId, newStatus.toString()],
         fee: 50000,
@@ -89,7 +89,7 @@ export function useWhistleblowing() {
   const addComment = async (reportId: string, encryptedNote: string) => {
     try {
       const tx = await executeTransaction({
-        program: "whistleblowing.aleo",
+        program: "new_whistleblowing.aleo",
         function: "add_comment",
         inputs: [reportId, encryptedNote],
         fee: 50000,

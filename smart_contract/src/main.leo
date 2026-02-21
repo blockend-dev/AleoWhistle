@@ -1,5 +1,4 @@
-// program whistleblowing.aleo
-program whistleblowing1.aleo {
+program new_whistleblowing.aleo {
 
     // --- Data Structures ---
 
@@ -26,7 +25,7 @@ program whistleblowing1.aleo {
         report_id: field,
         encrypted_data: field,   // IPFS CID of the AES-encrypted report
         admin_key: field,        // AES Key encrypted with Admin's Public Key
-        reviewer_key: field      // AES Key encrypted with Reviewer's Public Key
+        reviewer_key: field,    // AES Key encrypted with Reviewer's Public Key
         ephemeral_key: field
     }
 
@@ -39,8 +38,10 @@ program whistleblowing1.aleo {
     mapping reviewers: address => bool;
     mapping stats: u8 => u64;
     
-    // Global Stats counters (Key 0u8: total, 1u8: pending, 2u8: resolved)
-    mapping stats: u8 => u64;
+    @noupgrade
+    async constructor(
+    ) {}
+
 
     // --- Initialization ---
 
@@ -150,8 +151,6 @@ program whistleblowing1.aleo {
         public current_status: u8
     ) {
         let derived_id: field = Poseidon2::hash_to_field(reporter_seed);
-        // This assertion happens in the ZK proof. 
-        // If it fails, the transaction is invalid, protecting the reporter from fakes.
         assert_eq(derived_id, report_id);
     }
 

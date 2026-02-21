@@ -1,4 +1,4 @@
-program whistleblowing.aleo;
+program new_whistleblowing.aleo;
 
 struct Report:
     report_id as field;
@@ -19,7 +19,9 @@ struct ReportMeta:
 struct EncryptedContent:
     report_id as field;
     encrypted_data as field;
-    encryption_key_hash as field;
+    admin_key as field;
+    reviewer_key as field;
+    ephemeral_key as field;
 
 mapping reports:
     key as field.public;
@@ -47,7 +49,7 @@ mapping stats:
 
 function initialize:
     async initialize self.caller into r0;
-    output r0 as whistleblowing.aleo/initialize.future;
+    output r0 as new_whistleblowing.aleo/initialize.future;
 
 finalize initialize:
     input r0 as address.public;
@@ -67,10 +69,12 @@ function submit_report:
     input r4 as field.public;
     input r5 as field.public;
     input r6 as field.public;
-    hash.psd2 r0 into r7 as field;
-    async submit_report r7 r1 r2 r3 r4 r5 r6 into r8;
-    output r7 as field.private;
-    output r8 as whistleblowing.aleo/submit_report.future;
+    input r7 as field.public;
+    input r8 as field.public;
+    hash.psd2 r0 into r9 as field;
+    async submit_report r9 r1 r2 r3 r4 r5 r6 r7 r8 into r10;
+    output r9 as field.private;
+    output r10 as new_whistleblowing.aleo/submit_report.future;
 
 finalize submit_report:
     input r0 as field.public;
@@ -80,19 +84,21 @@ finalize submit_report:
     input r4 as field.public;
     input r5 as field.public;
     input r6 as field.public;
-    cast block.height into r7 as u64;
-    cast r0 r1 r2 r7 r3 r4 1u8 into r8 as Report;
-    cast r0 r1 r2 r7 1u8 into r9 as ReportMeta;
-    cast r0 r5 r6 into r10 as EncryptedContent;
-    set r8 into reports[r0];
-    set r9 into report_meta[r0];
-    set r10 into encrypted_contents[r0];
-    get.or_use stats[0u8] 0u64 into r11;
-    get.or_use stats[1u8] 0u64 into r12;
-    add r11 1u64 into r13;
-    set r13 into stats[0u8];
-    add r12 1u64 into r14;
-    set r14 into stats[1u8];
+    input r7 as field.public;
+    input r8 as field.public;
+    cast block.height into r9 as u64;
+    cast r0 r1 r2 r9 r3 r4 1u8 into r10 as Report;
+    cast r0 r1 r2 r9 1u8 into r11 as ReportMeta;
+    cast r0 r5 r6 r7 r8 into r12 as EncryptedContent;
+    set r10 into reports[r0];
+    set r11 into report_meta[r0];
+    set r12 into encrypted_contents[r0];
+    get.or_use stats[0u8] 0u64 into r13;
+    get.or_use stats[1u8] 0u64 into r14;
+    add r13 1u64 into r15;
+    set r15 into stats[0u8];
+    add r14 1u64 into r16;
+    set r16 into stats[1u8];
 
 function check_status_privately:
     input r0 as field.private;
@@ -105,7 +111,7 @@ function update_status:
     input r0 as field.public;
     input r1 as u8.public;
     async update_status self.caller r0 r1 into r2;
-    output r2 as whistleblowing.aleo/update_status.future;
+    output r2 as new_whistleblowing.aleo/update_status.future;
 
 finalize update_status:
     input r0 as address.public;
@@ -135,7 +141,7 @@ finalize update_status:
 function add_reviewer:
     input r0 as address.public;
     async add_reviewer self.caller r0 into r1;
-    output r1 as whistleblowing.aleo/add_reviewer.future;
+    output r1 as new_whistleblowing.aleo/add_reviewer.future;
 
 finalize add_reviewer:
     input r0 as address.public;
@@ -143,3 +149,6 @@ finalize add_reviewer:
     get.or_use admins[r0] false into r2;
     assert.eq r2 true;
     set true into reviewers[r1];
+
+constructor:
+    assert.eq edition 0u16;
