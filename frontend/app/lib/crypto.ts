@@ -198,3 +198,31 @@ export const parseReportIdFromReceipt = (receipt: any): string => {
     return "";
   }
 };
+
+export const parseAleoStruct = (structStr: string) => {
+  // We strip the curly braces and split by commas
+  const cleanStr = structStr.replace(/[{}]/g, '');
+  const pairs = cleanStr.split(',').map(p => p.trim());
+  
+  const result: any = {};
+  
+  pairs.forEach(pair => {
+    const [key, val] = pair.split(':').map(s => s.trim());
+    if (!key || !val) return;
+
+    // Remove common Aleo suffixes and convert to JS types
+    if (val.endsWith('field')) {
+      result[key] = val.replace('field', '');
+    } else if (val.endsWith('u8') || val.endsWith('u32') || val.endsWith('u64')) {
+      result[key] = parseInt(val.replace(/u\d+/, ''), 10);
+    } else if (val.endsWith('group')) {
+      result[key] = val.replace('group', '');
+    } else if (val.endsWith('address')) {
+      result[key] = val.replace('address', '');
+    } else {
+      result[key] = val;
+    }
+  });
+
+  return result;
+};

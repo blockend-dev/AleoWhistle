@@ -1,37 +1,52 @@
-// app/dashboard/page.tsx
 "use client";
 import { useState, useEffect } from "react";
 import { Shield } from "lucide-react";
 import { ReportCard } from "@/app/components/ReportCard";
 import { ReviewModal } from "@/app/components/ReviewModal";
 import { useWhistleblowing } from "@/app/hooks/useWhistleblowing";
+import { decryptWithAES, keyToUint8Array, parseAleoStruct } from "../lib/crypto";
+import { useIPFS } from '@/app/hooks/useIPFS'
+
 
 export default function DashboardPage() {
   const [reports, setReports] = useState<any[]>([]);
   const [selectedReport, setSelectedReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const { updateStatus, addComment } = useWhistleblowing();
+  const [unlockedContent, setUnlockedContent] = useState<Record<string, any>>({});
+  const { fetchFromIPFS } = useIPFS()
 
-  // In production, fetch reports from an indexer or Aleo node
   useEffect(() => {
-    // Mock data – replace with actual contract queries
-    setReports([
-      {
-        report_id: "0x1234...",
-        category: 2,
-        severity: 3,
-        timestamp: Math.floor(Date.now() / 1000) - 86400,
-        status: 1,
-        evidence_hash: "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco"
+    const syncBlockchain = async () => {
+      try {
+        const response = await fetch(
+          `https://api.provable.com/v2/testnet/program/new_whistleblowing.aleo/mapping/reports`
+        );
+
+        if (!response.ok) throw new Error("Network latency on Aleo node");
+
+        const rawData = await response.json();
+
+        const liveReports = rawData.map((item: any) => ({
+          report_id: item.key.replace('field', ''),
+          ...parseAleoStruct(item.value)
+        }));
+
+        setReports(liveReports);
+      } catch (err) {
+        console.error("Sync error:", err);
+      } finally {
+        setLoading(false);
       }
-    ]);
-    setLoading(false);
+    };
+
+    syncBlockchain();
   }, []);
 
   const handleAction = async (reportId: string, action: string, comment?: string) => {
     try {
       if (action === "comment" && comment) {
-        // Encrypt comment before adding (simplified)
+        // Encrypt comment before adding 
         await addComment(reportId, `0x${btoa(comment)}`);
       } else {
         const newStatus = action === "approve" ? 3 : 4; // 3=Resolved, 4=Rejected
@@ -44,6 +59,38 @@ export default function DashboardPage() {
     }
   };
 
+  const handleUnlockReport = async (report: any) => {
+    const reviewerSK = prompt("Enter Reviewer Private Key to decrypt:");
+    if (!reviewerSK) return;
+
+    try {
+      const { Group, PrivateKey } = await import('@provablehq/sdk');
+
+      const privKey = PrivateKey.from_string(reviewerSK);
+      const ephemeralPoint = Group.fromString(report.ephemeral_key);
+
+      const sharedSecretPoint = ephemeralPoint.scalarMultiply(privKey.to_view_key().to_scalar());
+      const secretBI = BigInt(sharedSecretPoint.toString().replace(/group$/, ''));
+
+      // Recover AES Key
+      const encryptedKeyBI = BigInt(report.reviewer_key);
+      const recoveredKey = (encryptedKeyBI ^ secretBI).toString();
+
+      // Fetch and Decrypt IPFS data
+      const encryptedBlob = await fetchFromIPFS(report.evidence_hash);
+      const decryptedData = await decryptWithAES(encryptedBlob, recoveredKey);
+
+      setUnlockedContent(prev => ({
+        ...prev,
+        [report.report_id]: JSON.parse(decryptedData)
+      }));
+
+    } catch (err) {
+      console.error("Decryption failed:", err);
+      alert("Invalid Key: You do not have permission to view this report.");
+    }
+  };
+
   return (
     <div className="min-h-screen pt-24 px-4 cyber-grid">
       <div className="max-w-7xl mx-auto">
@@ -52,7 +99,7 @@ export default function DashboardPage() {
             <Shield className="inline-block h-8 w-8 mr-2 text-neon-green" />
             Reviewer Dashboard
           </h1>
-          
+
           <div className="flex items-center space-x-4">
             <span className="text-sm font-mono text-neon-green">
               {reports.length} Pending Reports
@@ -94,8 +141,10 @@ export default function DashboardPage() {
       {selectedReport && (
         <ReviewModal
           report={selectedReport}
+          decryptedData={unlockedContent[(selectedReport as any).report_id]}
           onClose={() => setSelectedReport(null)}
           onAction={handleAction}
+          onUnlock={() => handleUnlockReport(selectedReport)}
         />
       )}
     </div>
