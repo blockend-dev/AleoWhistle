@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { X, Download, Lock, ShieldCheck } from "lucide-react";
+import { REPORT_CATEGORIES, REPORT_SEVERITY } from "../lib/crypto";
 
 interface ReviewModalProps {
   report: any;
   onClose: () => void;
   onAction: (id: string, action: string, data?: any) => void;
   onUnlock: (report: any) => Promise<any>;
-  decryptedData: any; 
+  decryptedData: any;
 }
 
 export function ReviewModal({ report, onClose, onAction, onUnlock, decryptedData }: ReviewModalProps) {
@@ -53,11 +54,16 @@ export function ReviewModal({ report, onClose, onAction, onUnlock, decryptedData
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 bg-cyber-black rounded border border-neon-blue/20">
                 <label className="text-xs text-neon-blue font-mono block mb-1">CATEGORY</label>
-                <span className="text-white">Corruption</span> {/* Map report.category here */}
+                <span className="text-white font-mono">
+                  {REPORT_CATEGORIES[report.category] || "Unknown"}
+                </span>
               </div>
-              <div className="p-3 bg-cyber-black rounded border border-neon-red/20">
-                <label className="text-xs text-neon-red font-mono block mb-1">SEVERITY</label>
-                <span className="text-white">Critical</span> {/* Map report.severity here */}
+
+              <div className={`p-3 bg-cyber-black rounded border border-current ${REPORT_SEVERITY[report.severity]?.color || 'text-gray-400'}`}>
+                <label className="text-xs font-mono block mb-1 opacity-70">SEVERITY</label>
+                <span className="text-white font-mono font-bold">
+                  {REPORT_SEVERITY[report.severity]?.label || "N/A"}
+                </span>
               </div>
             </div>
 
@@ -105,7 +111,7 @@ export function ReviewModal({ report, onClose, onAction, onUnlock, decryptedData
           />
           <div className="flex justify-between items-center mt-4">
             <div className="flex space-x-2">
-               <button
+              <button
                 onClick={() => onAction(report.report_id, "reject")}
                 className="px-4 py-2 border border-neon-red/50 text-neon-red rounded hover:bg-neon-red/10 transition-colors font-mono text-sm"
               >
@@ -118,7 +124,7 @@ export function ReviewModal({ report, onClose, onAction, onUnlock, decryptedData
                 RESOLVE
               </button>
             </div>
-            
+
             <button
               onClick={() => onAction(report.report_id, "comment", comment)}
               className="bg-neon-purple text-white px-6 py-2 rounded-lg font-bold hover:bg-neon-purple/90 shadow-lg shadow-neon-purple/20 transition-all"

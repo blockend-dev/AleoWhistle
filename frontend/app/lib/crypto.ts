@@ -226,3 +226,54 @@ export const parseAleoStruct = (structStr: string) => {
 
   return result;
 };
+
+export const REPORT_CATEGORIES: Record<number, string> = {
+  1: "Corruption",
+  2: "Harassment",
+  3: "Safety Violation",
+  4: "Fraud",
+  5: "Other"
+};
+
+export const REPORT_SEVERITY: Record<number, { label: string; color: string }> = {
+  1: { label: "Low", color: "text-blue-400" },
+  2: { label: "Medium", color: "text-yellow-400" },
+  3: { label: "High", color: "text-orange-500" },
+  4: { label: "Critical", color: "text-neon-red" }
+};
+
+export const REPORT_STATUS: Record<number, { label: string; color: string }> = {
+  1: { label: "Pending Review", color: "text-neon-blue" },
+  2: { label: "Under Investigation", color: "text-yellow-400" },
+  3: { label: "Resolved", color: "text-neon-green" },
+  4: { label: "Dismissed", color: "text-gray-500" }
+};
+
+export const discoverReportIds = async (programName: string) => {
+  try {
+    // 1. Get the list of transaction IDs for your program
+    // Note: Most Aleo explorers/APIs provide a 'transactions by program' endpoint
+    const response = await fetch(
+      `https://api.provable.com/v2/testnet/program/${programName}/transactions`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+
+    if (!response.ok) throw new Error("Could not fetch program transactions");
+    
+    const txIds: string[] = await response.json();
+
+    // 2. For each transaction, fetch the details and extract the report_id
+    const reportIds = await Promise.all(
+      txIds.slice(0, 20).map(async (txId) => { // Limit to last 20 for performance
+        const txDetails = await getBlockchainReceipt(txId);
+        return parseReportIdFromReceipt(txDetails); 
+      })
+    );
+
+    // Filter out empties and duplicates
+    return Array.from(new Set(reportIds.filter(id => id !== "")));
+  } catch (error) {
+    console.error("Discovery failed:", error);
+    return [];
+  }
+};

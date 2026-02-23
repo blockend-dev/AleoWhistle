@@ -5,11 +5,14 @@ import { useDropzone } from 'react-dropzone'
 import { Upload, Lock, AlertCircle, CheckCircle, Shield } from 'lucide-react'
 import { useWhistleblowing } from '@/app/hooks/useWhistleblowing'
 import { useIPFS } from '@/app/hooks/useIPFS'
-import { generateSeed, encryptKeyForAddress, cidToAleoField,
-   hashContent, generate31ByteKey, keyToUint8Array, encryptWithAES, 
-   getBlockchainReceipt,
-   parseReportIdFromReceipt} from '@/app/lib/crypto'
+import {
+  generateSeed, encryptKeyForAddress, cidToAleoField,
+  hashContent, generate31ByteKey, keyToUint8Array, encryptWithAES,
+  getBlockchainReceipt,
+  parseReportIdFromReceipt
+} from '@/app/lib/crypto'
 import Link from 'next/link'
+import { supabase } from '../lib/db'
 export default function SubmitPage() {
   const [step, setStep] = useState(1)
   const [report, setReport] = useState({
@@ -20,7 +23,7 @@ export default function SubmitPage() {
     files: [] as File[]
   })
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ reportId: string; seed: string, txId : string } | null>(null)
+  const [result, setResult] = useState<{ reportId: string; seed: string, txId: string } | null>(null)
 
   const { submitReport } = useWhistleblowing()
   const { uploadToIPFS } = useIPFS()
@@ -29,48 +32,60 @@ export default function SubmitPage() {
     onDrop: (files) => setReport({ ...report, files: [...report.files, ...files] })
   })
 
-const handleSubmit = async () => {
-  setSubmitting(true);
-  try {
-    // Create the secret Case Key (The "Master Key" for this report)
-    const caseKey = generate31ByteKey(); 
-    const caseKeyBytes = keyToUint8Array(caseKey);
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      // Create the secret Case Key (The "Master Key" for this report)
+      const caseKey = generate31ByteKey();
+      const caseKeyBytes = keyToUint8Array(caseKey);
 
-    // Use the bytes version for the actual AES-GCM algorithm
-    const reportBlob = await encryptWithAES(JSON.stringify(report), caseKeyBytes);
-    const reportCID = await uploadToIPFS(reportBlob);
+      // Use the bytes version for the actual AES-GCM algorithm
+      const reportBlob = await encryptWithAES(JSON.stringify(report), caseKeyBytes);
+      const reportCID = await uploadToIPFS(reportBlob);
 
-    const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
-    const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
-    // Submit to Aleo
-    const seed = generateSeed(); 
-    const { finalTxId } = await submitReport({
-      seed,
-      category: report.category,
-      severity: report.severity,
-      contentHash: await hashContent(caseKey),
-      evidenceCID: reportCID,
-      adminKeyField: adminData.encryptedKey,
-      reviewerKeyField: reviewerData.encryptedKey,
-      ephemeralKey: adminData.ephemeralPublicKey
-    });
+      const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
+      const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
+      // Submit to Aleo
+      const seed = generateSeed();
+      const { finalTxId } = await submitReport({
+        seed,
+        category: report.category,
+        severity: report.severity,
+        contentHash: await hashContent(caseKey),
+        evidenceCID: reportCID,
+        adminKeyField: adminData.encryptedKey,
+        reviewerKeyField: reviewerData.encryptedKey,
+        ephemeralKey: adminData.ephemeralPublicKey
+      });
 
-    const receipt = await getBlockchainReceipt(finalTxId);
-    const onChainId = parseReportIdFromReceipt(receipt);
+      const receipt = await getBlockchainReceipt(finalTxId);
+      const onChainId = parseReportIdFromReceipt(receipt);
+      const { error } = await supabase
+        .from('reports_index')
+        .insert([{
+          report_id: onChainId,
+          tx_id: finalTxId,
+          category: report.category,
+          severity: report.severity
+        }]);
 
-    console.log("Blockchain Receipt:", receipt, "Parsed Report ID:", onChainId);
-    setResult({
-      reportId: onChainId || "Pending Confirmation", 
-      seed: seed,
-      txId: finalTxId
-    });
-    setStep(3);
-  } catch (err) {
-    console.error(err);
-  } finally {
-    setSubmitting(false);
-  }
-};
+        if (error) {
+          console.error("Error inserting report into Supabase:", error);
+        }
+
+      console.log("Blockchain Receipt:", receipt, "Parsed Report ID:", onChainId);
+      setResult({
+        reportId: onChainId || "Pending Confirmation",
+        seed: seed,
+        txId: finalTxId
+      });
+      setStep(3);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen pt-24 px-4 cyber-grid">
@@ -106,7 +121,7 @@ const handleSubmit = async () => {
                 <Lock className="h-5 w-5" />
                 <span className="font-mono">Secure Report Drafting</span>
               </div>
-              
+
               <div className="space-y-4">
                 <input
                   type="text"
@@ -198,7 +213,7 @@ const handleSubmit = async () => {
                   <span className="font-mono text-sm">End-to-End Encryption Active</span>
                 </div>
                 <p className="text-xs text-gray-500 font-mono">
-                  Your report will be encrypted using the reviewer's public key. 
+                  Your report will be encrypted using the reviewer's public key.
                   Only authorized reviewers can decrypt it.
                 </p>
               </div>
@@ -245,7 +260,7 @@ const handleSubmit = async () => {
                   Copy
                 </button>
               </div>
-              
+
               <div className="mt-4 p-3 bg-neon-red/10 border border-neon-red/30 rounded">
                 <p className="text-sm text-neon-red font-mono flex items-center">
                   <AlertCircle className="h-4 w-4 mr-2" />

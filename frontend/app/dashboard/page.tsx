@@ -1,83 +1,109 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Shield } from "lucide-react";
+import { Shield, Activity, RefreshCw } from "lucide-react";
 import { ReportCard } from "@/app/components/ReportCard";
 import { ReviewModal } from "@/app/components/ReviewModal";
 import { useWhistleblowing } from "@/app/hooks/useWhistleblowing";
 import { decryptWithAES, keyToUint8Array, parseAleoStruct } from "../lib/crypto";
-import { useIPFS } from '@/app/hooks/useIPFS'
-
+import { useIPFS } from '@/app/hooks/useIPFS';
+import { supabase } from "../lib/db";
 
 export default function DashboardPage() {
   const [reports, setReports] = useState<any[]>([]);
-  const [selectedReport, setSelectedReport] = useState(null);
+  const [selectedReport, setSelectedReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const { updateStatus, addComment } = useWhistleblowing();
   const [unlockedContent, setUnlockedContent] = useState<Record<string, any>>({});
-  const { fetchFromIPFS } = useIPFS()
+  
+  const { updateStatus, addComment } = useWhistleblowing();
+  const { fetchFromIPFS } = useIPFS();
 
   useEffect(() => {
-    const syncBlockchain = async () => {
+    const fetchInitialReports = async () => {
       try {
-        const response = await fetch(
-          `https://api.provable.com/v2/testnet/program/new_whistleblowing.aleo/mapping/reports`
-        );
-
-        if (!response.ok) throw new Error("Network latency on Aleo node");
-
-        const rawData = await response.json();
-
-        const liveReports = rawData.map((item: any) => ({
-          report_id: item.key.replace('field', ''),
-          ...parseAleoStruct(item.value)
-        }));
-
-        setReports(liveReports);
+        const { data, error } = await supabase
+          .from('reports_index')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        setReports(data || []);
       } catch (err) {
-        console.error("Sync error:", err);
+        console.error("Supabase fetch error:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    syncBlockchain();
+    fetchInitialReports();
+
+    const channel = supabase
+      .channel('live_reports')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports_index' }, 
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setReports((prev) => [payload.new, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setReports((prev) => prev.map(r => r.report_id === payload.new.report_id ? payload.new : r));
+          }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const handleAction = async (reportId: string, action: string, comment?: string) => {
     try {
       if (action === "comment" && comment) {
-        // Encrypt comment before adding 
-        await addComment(reportId, `0x${btoa(comment)}`);
+        // Hex encode comment for Aleo field compatibility
+        await addComment(reportId, `0x${Buffer.from(comment).toString('hex')}`);
+        alert("Comment added to blockchain");
       } else {
         const newStatus = action === "approve" ? 3 : 4; // 3=Resolved, 4=Rejected
+        
         await updateStatus(reportId, newStatus);
+        
+        const { error } = await supabase
+          .from('reports_index')
+          .update({ status: newStatus, updated_at: new Date() })
+          .eq('report_id', reportId);
+
+        if (error) throw error;
+        alert(`Report ${action === "approve" ? "Resolved" : "Rejected"} successfully`);
       }
-      alert("Action completed");
     } catch (error) {
       console.error("Action failed:", error);
-      alert("Action failed");
+      alert("Blockchain transaction failed. Check wallet.");
     }
   };
 
   const handleUnlockReport = async (report: any) => {
-    const reviewerSK = prompt("Enter Reviewer Private Key to decrypt:");
+    const reviewerSK = prompt("Enter Reviewer Private Key to decrypt evidence:");
     if (!reviewerSK) return;
 
     try {
       const { Group, PrivateKey } = await import('@provablehq/sdk');
 
+      // Setup keys
       const privKey = PrivateKey.from_string(reviewerSK);
-      const ephemeralPoint = Group.fromString(report.ephemeral_key);
+      
+      // Fetch full on-chain mapping data to get ephemeral keys
+      const response = await fetch(
+        `https://api.provable.com/v2/testnet/program/new_whistleblowing_version1.aleo/mapping/reports/${report.report_id}field`
+      );
+      const rawMapping = await response.json();
+      const chainData = parseAleoStruct(rawMapping);
 
+      // ECDH Shared Secret Calculation
+      const ephemeralPoint = Group.fromString(chainData.ephemeral_key);
       const sharedSecretPoint = ephemeralPoint.scalarMultiply(privKey.to_view_key().to_scalar());
       const secretBI = BigInt(sharedSecretPoint.toString().replace(/group$/, ''));
 
-      // Recover AES Key
-      const encryptedKeyBI = BigInt(report.reviewer_key);
+      // Recover AES Key via XOR
+      const encryptedKeyBI = BigInt(chainData.reviewer_key);
       const recoveredKey = (encryptedKeyBI ^ secretBI).toString();
 
-      // Fetch and Decrypt IPFS data
-      const encryptedBlob = await fetchFromIPFS(report.evidence_hash);
+      // Fetch from IPFS and Decrypt
+      const encryptedBlob = await fetchFromIPFS(chainData.evidence_hash);
       const decryptedData = await decryptWithAES(encryptedBlob, recoveredKey);
 
       setUnlockedContent(prev => ({
@@ -87,42 +113,52 @@ export default function DashboardPage() {
 
     } catch (err) {
       console.error("Decryption failed:", err);
-      alert("Invalid Key: You do not have permission to view this report.");
+      alert("Decryption failed: You may not be the authorized reviewer for this case.");
     }
   };
 
   return (
     <div className="min-h-screen pt-24 px-4 cyber-grid">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold glitch-text">
-            <Shield className="inline-block h-8 w-8 mr-2 text-neon-green" />
-            Reviewer Dashboard
-          </h1>
+        
+        {/* Header Section */}
+        <div className="flex justify-between items-end mb-8">
+          <div>
+            <h1 className="text-4xl font-bold glitch-text flex items-center">
+              <Shield className="h-10 w-10 mr-3 text-neon-green" />
+              REVIEWER_DASHBOARD
+            </h1>
+            <p className="text-gray-500 font-mono mt-2 flex items-center">
+              <Activity className="h-4 w-4 mr-2 text-neon-blue" />
+              Monitoring Aleo Mainnet...
+            </p>
+          </div>
 
-          <div className="flex items-center space-x-4">
-            <span className="text-sm font-mono text-neon-green">
-              {reports.length} Pending Reports
-            </span>
+          <div className="flex items-center space-x-6">
+            <div className="text-right">
+              <p className="text-xs text-gray-500 font-mono uppercase">Active Reports</p>
+              <p className="text-xl font-bold text-neon-green">{reports.length}</p>
+            </div>
             <button
               onClick={() => window.location.reload()}
-              className="px-4 py-2 border border-neon-green/50 text-neon-green rounded-lg hover:bg-neon-green/10"
+              className="p-3 border border-neon-green/30 text-neon-green rounded-full hover:bg-neon-green/10 transition-all"
             >
-              Refresh
+              <RefreshCw className="h-5 w-5" />
             </button>
           </div>
         </div>
 
+        {/* Reports Content */}
         {loading ? (
           <div className="text-center py-20">
-            <div className="animate-spin h-8 w-8 border-2 border-neon-green border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-gray-400 font-mono">Loading reports...</p>
+            <div className="animate-spin h-10 w-10 border-4 border-neon-green border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-neon-blue font-mono animate-pulse">SYNCING_WITH_SUPABASE...</p>
           </div>
         ) : reports.length === 0 ? (
-          <div className="terminal-window text-center py-20">
-            <Shield className="h-16 w-16 text-neon-green mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">All Caught Up!</h2>
-            <p className="text-gray-400 font-mono">No pending reports to review.</p>
+          <div className="terminal-window text-center py-20 border-dashed">
+            <Shield className="h-16 w-16 text-gray-700 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-gray-500">NO PENDING CASES FOUND</h2>
+            <p className="text-gray-600 font-mono text-sm mt-2">Waiting for new incoming transmissions...</p>
           </div>
         ) : (
           <div className="grid gap-6">
@@ -130,6 +166,7 @@ export default function DashboardPage() {
               <ReportCard
                 key={report.report_id}
                 report={report}
+                isUnlocked={!!unlockedContent[report.report_id]}
                 onView={() => setSelectedReport(report)}
                 onAction={handleAction}
               />
@@ -138,10 +175,11 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {/* Overlays */}
       {selectedReport && (
         <ReviewModal
           report={selectedReport}
-          decryptedData={unlockedContent[(selectedReport as any).report_id]}
+          decryptedData={unlockedContent[selectedReport.report_id]}
           onClose={() => setSelectedReport(null)}
           onAction={handleAction}
           onUnlock={() => handleUnlockReport(selectedReport)}

@@ -20,7 +20,7 @@ export function useIPFS() {
         method: "POST",
         body: formData,
       });
-
+ 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "IPFS Upload Failed");
@@ -40,6 +40,7 @@ export function useIPFS() {
     // Public gateway fetching stays the same
     const gateway = `https://gateway.pinata.cloud/ipfs/${cid}`;
     const response = await fetch(gateway);
+    console.log("Fetching from IPFS:", gateway, "Response status:", response);
     if (!response.ok) throw new Error("Could not fetch data from IPFS");
     return await response.blob();
   };

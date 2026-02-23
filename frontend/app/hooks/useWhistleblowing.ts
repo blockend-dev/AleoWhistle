@@ -62,6 +62,7 @@ export function useWhistleblowing() {
 
       const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
       const finalTxId = await pollTransaction(temporaryId);
+      console.log('Report submitted with Tx ID:', finalTxId);
       return { finalTxId };
     } catch (error) {
       console.error('Submit report failed:', error);
