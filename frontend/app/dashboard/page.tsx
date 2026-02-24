@@ -83,18 +83,19 @@ export default function DashboardPage() {
     try {
       const { Group, PrivateKey } = await import('@provablehq/sdk');
 
-      // Setup keys
       const privKey = PrivateKey.from_string(reviewerSK);
       
       // Fetch full on-chain mapping data to get ephemeral keys
       const response = await fetch(
-        `https://api.provable.com/v2/testnet/program/new_whistleblowing_version1.aleo/mapping/reports/${report.report_id}field`
+        `https://api.provable.com/v2/testnet/program/new_whistleblowing_version1.aleo/mapping/encrypted_contents/${report.report_id}field`
       );
       const rawMapping = await response.json();
       const chainData = parseAleoStruct(rawMapping);
 
+      console.log("Chain Data for Decryption:", chainData);
       // ECDH Shared Secret Calculation
       const ephemeralPoint = Group.fromString(chainData.ephemeral_key);
+      console.log("Ephemeral Point from Chain:", ephemeralPoint.toString());
       const sharedSecretPoint = ephemeralPoint.scalarMultiply(privKey.to_view_key().to_scalar());
       const secretBI = BigInt(sharedSecretPoint.toString().replace(/group$/, ''));
 
@@ -130,7 +131,7 @@ export default function DashboardPage() {
             </h1>
             <p className="text-gray-500 font-mono mt-2 flex items-center">
               <Activity className="h-4 w-4 mr-2 text-neon-blue" />
-              Monitoring Aleo Mainnet...
+              Monitoring Aleo Testnet...
             </p>
           </div>
 
