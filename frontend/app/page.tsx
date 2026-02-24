@@ -72,7 +72,7 @@ export default function Home() {
           
           <p className="text-xl text-gray-400 mb-12 max-w-3xl mx-auto font-mono leading-relaxed">
             The world's first fully decentralized whistleblowing portal. 
-            Encrypted by <span className="text-white">Aleo ZK-SNARKs</span>, stored on <span className="text-white">IPFS</span>.
+            {/* Encrypted by <span className="text-white">Aleo ZK-SNARKs</span>, stored on <span className="text-white">IPFS</span>. */}
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
