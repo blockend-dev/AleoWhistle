@@ -14,7 +14,6 @@ export default function Home() {
   useEffect(() => {
     const fetchLiveStats = async () => {
       try {
-        // 1. Fetch total count and specific status counts from Supabase
         const { data, error } = await supabase
           .from('reports_index')
           .select('status');
@@ -28,7 +27,6 @@ export default function Home() {
           setStats({ total, pending, resolved });
         }
 
-        // 2. Fetch the last 3 public IDs for the transparency feed
         const { data: recent } = await supabase
           .from('reports_index')
           .select('report_id, created_at, status')
@@ -98,19 +96,19 @@ export default function Home() {
           <StatsCard 
             icon={<FileText className="h-6 w-6" />}
             label="Encrypted Reports"
-            value={loading ? "..." : stats.total}
+            value={loading ? 0 : stats.total}
             color="green"
           />
           <StatsCard 
             icon={<AlertTriangle className="h-6 w-6" />}
             label="In Review"
-            value={loading ? "..." : stats.pending}
+            value={loading ? 0 : stats.pending}
             color="yellow"
           />
           <StatsCard 
             icon={<Shield className="h-6 w-6" />}
             label="Resolved on-chain"
-            value={loading ? "..." : stats.resolved}
+            value={loading ? 0 : stats.resolved}
             color="blue"
           />
         </div>
