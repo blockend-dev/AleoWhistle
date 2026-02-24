@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Hackathon-Project-orange)
 
-DEPLOYED CONTRACT ON TESTNET(https://testnet.explorer.provable.com/program/whistleblowing.aleo)
+DEPLOYED CONTRACT ON TESTNET(https://testnet.explorer.provable.com/program/new_whistleblowing_version1.aleo)
 
 ## 🎯 Overview
 
