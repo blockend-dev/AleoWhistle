@@ -2,17 +2,22 @@
 
 import { useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Lock, AlertCircle, CheckCircle, Shield } from 'lucide-react'
+import { Upload, Lock, AlertCircle, CheckCircle, Shield, Copy } from 'lucide-react'
 import { useWhistleblowing } from '@/app/hooks/useWhistleblowing'
 import { useIPFS } from '@/app/hooks/useIPFS'
 import {
-  generateSeed, encryptKeyForAddress, cidToAleoField,
-  hashContent, generate31ByteKey, keyToUint8Array, encryptWithAES,
+  generateSeed,
+  encryptCaseKeyForBothRecipients,
+  hashContent,
+  generate31ByteKey,
+  keyToUint8Array,
+  encryptWithAES,
   getBlockchainReceipt,
-  parseReportIdFromReceipt
+  parseReportIdFromReceipt,
 } from '@/app/lib/crypto'
 import Link from 'next/link'
 import { supabase } from '../lib/db'
+
 export default function SubmitPage() {
   const [step, setStep] = useState(1)
   const [report, setReport] = useState({
@@ -20,76 +25,111 @@ export default function SubmitPage() {
     description: '',
     category: 1,
     severity: 2,
-    files: [] as File[]
+    files: [] as File[],
   })
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ reportId: string; seed: string, txId: string } | null>(null)
+  const [error, setError]   = useState<string | null>(null)
+  const [result, setResult] = useState<{
+    reportId: string;
+    seed: string;
+    txId: string;
+  } | null>(null)
 
   const { submitReport } = useWhistleblowing()
-  const { uploadToIPFS } = useIPFS()
+  const { uploadToIPFS }  = useIPFS()
 
   const { getRootProps, getInputProps } = useDropzone({
-    onDrop: (files) => setReport({ ...report, files: [...report.files, ...files] })
+    onDrop: (files) => setReport(prev => ({ ...prev, files: [...prev.files, ...files] })),
   })
 
   const handleSubmit = async () => {
-    setSubmitting(true);
+    setError(null)
+    setSubmitting(true)
+
     try {
-      // Create the secret Case Key (The "Master Key" for this report)
-      const caseKey = generate31ByteKey();
-      const caseKeyBytes = keyToUint8Array(caseKey);
+      // Validate that admin + reviewer addresses are configured
+      const adminAddr    = process.env.NEXT_PUBLIC_ADMIN_ADDR
+      const reviewerAddr = process.env.NEXT_PUBLIC_REVIEWER_ADDR
+      if (!adminAddr || !reviewerAddr) {
+        throw new Error(
+          'Admin or reviewer address is not configured. ' +
+          'Set NEXT_PUBLIC_ADMIN_ADDR and NEXT_PUBLIC_REVIEWER_ADDR in your .env.local.'
+        )
+      }
 
-      // Use the bytes version for the actual AES-GCM algorithm
-      const reportBlob = await encryptWithAES(JSON.stringify(report), caseKeyBytes);
-      const reportCID = await uploadToIPFS(reportBlob);
+      // 1. Generate a 31-byte AES case key (the "master key" for this report)
+      const caseKey      = generate31ByteKey()
+      const caseKeyBytes = keyToUint8Array(caseKey)
 
-      const adminData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_ADMIN_ADDR!);
-      const reviewerData = await encryptKeyForAddress(caseKey, process.env.NEXT_PUBLIC_REVIEWER_ADDR!);
-      // Submit to Aleo
-      const seed = generateSeed();
+      // 2. Encrypt report JSON and upload to IPFS
+      const reportPayload = JSON.stringify({
+        title:       report.title,
+        description: report.description,
+        category:    report.category,
+        severity:    report.severity,
+      })
+      const reportBlob = await encryptWithAES(reportPayload, caseKeyBytes)
+      const reportCID  = await uploadToIPFS(reportBlob)
+
+      // 3. Encrypt the case key for BOTH admin and reviewer with ONE ephemeral key
+      const { adminEncryptedKey, reviewerEncryptedKey, ephemeralField } =
+        await encryptCaseKeyForBothRecipients(caseKey, adminAddr, reviewerAddr)
+
+      // 4. Generate anonymous reporter seed
+      const seed = generateSeed()
+
+      // 5. Submit to Aleo blockchain
       const { finalTxId } = await submitReport({
         seed,
-        category: report.category,
-        severity: report.severity,
-        contentHash: await hashContent(caseKey),
-        evidenceCID: reportCID,
-        adminKeyField: adminData.encryptedKey,
-        reviewerKeyField: reviewerData.encryptedKey,
-        ephemeralKey: adminData.ephemeralPublicKey
-      });
+        category:       report.category,
+        severity:       report.severity,
+        contentHash:    await hashContent(caseKey),
+        evidenceCID:    reportCID,
+        adminKeyField:    adminEncryptedKey,
+        reviewerKeyField: reviewerEncryptedKey,
+        ephemeralKey:     ephemeralField,
+      })
 
-      const receipt = await getBlockchainReceipt(finalTxId);
-      const onChainId = parseReportIdFromReceipt(receipt);
-      const { error } = await supabase
+      // 6. Parse the on-chain report_id from the transaction receipt
+      const receipt    = await getBlockchainReceipt(finalTxId)
+      const onChainId  = parseReportIdFromReceipt(receipt)
+
+      // 7. Index the report in Supabase (stores CID so reviewers can fetch from IPFS)
+      const { error: dbError } = await supabase
         .from('reports_index')
         .insert([{
-          report_id: onChainId,
-          tx_id: finalTxId,
-          category: report.category,
-          severity: report.severity
-        }]);
+          report_id:    onChainId,
+          tx_id:        finalTxId,
+          category:     report.category,
+          severity:     report.severity,
+          evidence_cid: reportCID,   // original CID needed for IPFS retrieval
+        }])
 
-        if (error) {
-          console.error("Error inserting report into Supabase:", error);
-        }
+      if (dbError) {
+        console.error('Supabase insert error:', dbError)
+      }
 
-      console.log("Blockchain Receipt:", receipt, "Parsed Report ID:", onChainId);
       setResult({
-        reportId: onChainId || "Pending Confirmation",
-        seed: seed,
-        txId: finalTxId
-      });
-      setStep(3);
-    } catch (err) {
-      console.error(err);
+        reportId: onChainId || 'Pending Confirmation',
+        seed,
+        txId: finalTxId,
+      })
+      setStep(3)
+    } catch (err: any) {
+      console.error('Submission error:', err)
+      setError(err?.message ?? 'Submission failed. Please try again.')
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
-  };
+  }
+
+  const copyToClipboard = (text: string) =>
+    navigator.clipboard.writeText(text).catch(() => {})
 
   return (
     <div className="min-h-screen pt-24 px-4 cyber-grid">
       <div className="max-w-3xl mx-auto">
+
         {/* Progress Steps */}
         <div className="mb-12">
           <div className="flex justify-between items-center">
@@ -114,6 +154,7 @@ export default function SubmitPage() {
           </div>
         </div>
 
+        {/* Step 1: Write Report */}
         {step === 1 && (
           <div className="terminal-window">
             <div className="mb-6">
@@ -125,10 +166,10 @@ export default function SubmitPage() {
               <div className="space-y-4">
                 <input
                   type="text"
-                  placeholder="Report Title (Optional - keeps anonymous)"
+                  placeholder="Report Title (Optional — stays anonymous)"
                   className="w-full bg-cyber-black border border-neon-green/30 rounded-lg px-4 py-3 font-mono"
                   value={report.title}
-                  onChange={(e) => setReport({ ...report, title: e.target.value })}
+                  onChange={(e) => setReport(prev => ({ ...prev, title: e.target.value }))}
                 />
 
                 <textarea
@@ -136,14 +177,14 @@ export default function SubmitPage() {
                   rows={8}
                   className="w-full bg-cyber-black border border-neon-green/30 rounded-lg px-4 py-3 font-mono"
                   value={report.description}
-                  onChange={(e) => setReport({ ...report, description: e.target.value })}
+                  onChange={(e) => setReport(prev => ({ ...prev, description: e.target.value }))}
                 />
 
                 <div className="grid grid-cols-2 gap-4">
                   <select
                     className="bg-cyber-black border border-neon-green/30 rounded-lg px-4 py-3 font-mono"
                     value={report.category}
-                    onChange={(e) => setReport({ ...report, category: parseInt(e.target.value) })}
+                    onChange={(e) => setReport(prev => ({ ...prev, category: parseInt(e.target.value) }))}
                   >
                     <option value={1}>Corruption</option>
                     <option value={2}>Harassment</option>
@@ -155,7 +196,7 @@ export default function SubmitPage() {
                   <select
                     className="bg-cyber-black border border-neon-green/30 rounded-lg px-4 py-3 font-mono"
                     value={report.severity}
-                    onChange={(e) => setReport({ ...report, severity: parseInt(e.target.value) })}
+                    onChange={(e) => setReport(prev => ({ ...prev, severity: parseInt(e.target.value) }))}
                   >
                     <option value={1}>Low</option>
                     <option value={2}>Medium</option>
@@ -168,7 +209,7 @@ export default function SubmitPage() {
 
             <button
               onClick={() => setStep(2)}
-              disabled={!report.description}
+              disabled={!report.description.trim()}
               className="w-full bg-neon-green text-cyber-black py-3 rounded-lg font-bold hover:bg-neon-green/90 transition disabled:opacity-50"
             >
               Continue to Encryption
@@ -176,6 +217,7 @@ export default function SubmitPage() {
           </div>
         )}
 
+        {/* Step 2: Encrypt & Upload */}
         {step === 2 && (
           <div className="terminal-window">
             <div className="mb-6">
@@ -213,15 +255,24 @@ export default function SubmitPage() {
                   <span className="font-mono text-sm">End-to-End Encryption Active</span>
                 </div>
                 <p className="text-xs text-gray-500 font-mono">
-                  Your report will be encrypted using the reviewer's public key.
-                  Only authorized reviewers can decrypt it.
+                  Your report is encrypted client-side with AES-256-GCM.
+                  Dual ECDH keys ensure only authorized reviewers can decrypt.
                 </p>
               </div>
+
+              {error && (
+                <div className="mt-4 p-3 bg-neon-red/10 border border-neon-red/30 rounded">
+                  <p className="text-sm text-neon-red font-mono flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-2 flex-shrink-0" />
+                    {error}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex space-x-4">
               <button
-                onClick={() => setStep(1)}
+                onClick={() => { setStep(1); setError(null); }}
                 className="flex-1 border border-neon-green/50 text-neon-green py-3 rounded-lg hover:bg-neon-green/10 transition"
               >
                 Back
@@ -237,34 +288,52 @@ export default function SubmitPage() {
           </div>
         )}
 
+        {/* Step 3: Confirmation */}
         {step === 3 && result && (
           <div className="terminal-window text-center">
             <div className="mb-6">
               <CheckCircle className="h-16 w-16 text-neon-green mx-auto mb-4" />
               <h2 className="text-2xl font-bold glitch-text mb-2">Report Submitted!</h2>
               <p className="text-gray-400 font-mono">
-                Your report has been anonymously submitted to the blockchain.
+                Your report has been anonymously submitted to the Aleo blockchain.
               </p>
             </div>
 
-            <div className="bg-cyber-black p-4 rounded-lg mb-6 text-left">
-              <p className="text-sm text-gray-500 font-mono mb-2">Your Report ID (SAVE THIS):</p>
+            {/* Report ID */}
+            <div className="bg-cyber-black p-4 rounded-lg mb-4 text-left">
+              <p className="text-sm text-gray-500 font-mono mb-2">Report ID (save this):</p>
               <div className="flex items-center space-x-2">
-                <code className="flex-1 bg-cyber-darker p-2 rounded border border-neon-green/30 font-mono text-sm">
+                <code className="flex-1 bg-cyber-darker p-2 rounded border border-neon-green/30 font-mono text-xs break-all">
                   {result.reportId}
                 </code>
                 <button
-                  onClick={() => navigator.clipboard.writeText(result.reportId)}
-                  className="px-3 py-2 bg-neon-green/10 text-neon-green rounded hover:bg-neon-green/20"
+                  onClick={() => copyToClipboard(result.reportId)}
+                  className="p-2 bg-neon-green/10 text-neon-green rounded hover:bg-neon-green/20"
                 >
-                  Copy
+                  <Copy className="h-4 w-4" />
                 </button>
               </div>
+            </div>
 
-              <div className="mt-4 p-3 bg-neon-red/10 border border-neon-red/30 rounded">
-                <p className="text-sm text-neon-red font-mono flex items-center">
-                  <AlertCircle className="h-4 w-4 mr-2" />
-                  IMPORTANT: Save your Report ID and seed to check status later!
+            {/* Seed */}
+            <div className="bg-cyber-black p-4 rounded-lg mb-6 text-left">
+              <p className="text-sm text-gray-500 font-mono mb-2">Reporter Seed (save this securely):</p>
+              <div className="flex items-center space-x-2">
+                <code className="flex-1 bg-cyber-darker p-2 rounded border border-neon-red/30 font-mono text-xs break-all">
+                  {result.seed}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(result.seed)}
+                  className="p-2 bg-neon-red/10 text-neon-red rounded hover:bg-neon-red/20"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-3 p-3 bg-neon-red/10 border border-neon-red/30 rounded">
+                <p className="text-xs text-neon-red font-mono flex items-start">
+                  <AlertCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
+                  CRITICAL: Store both values offline. Your seed is the ONLY way to prove you
+                  submitted this report. It is never sent to any server.
                 </p>
               </div>
             </div>
