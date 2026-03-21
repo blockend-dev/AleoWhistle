@@ -4,27 +4,30 @@ import { Shield, Activity, RefreshCw } from "lucide-react";
 import { ReportCard } from "@/app/components/ReportCard";
 import { ReviewModal } from "@/app/components/ReviewModal";
 import { useWhistleblowing } from "@/app/hooks/useWhistleblowing";
-import { decryptWithAES, keyToUint8Array, parseAleoStruct } from "../lib/crypto";
-import { useIPFS } from '@/app/hooks/useIPFS';
+import { decryptWithAES, parseAleoStruct, recoverCaseKey } from "../lib/crypto";
+import { useIPFS } from "@/app/hooks/useIPFS";
 import { supabase } from "../lib/db";
 
+const PROGRAM = "new_whistleblowing_version1.aleo";
+const PROVABLE_API = "https://api.provable.com/v2/testnet";
+
 export default function DashboardPage() {
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports]           = useState<any[]>([]);
   const [selectedReport, setSelectedReport] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]           = useState(true);
   const [unlockedContent, setUnlockedContent] = useState<Record<string, any>>({});
-  
-  const { updateStatus, addComment } = useWhistleblowing();
+
+  const { updateStatus } = useWhistleblowing();
   const { fetchFromIPFS } = useIPFS();
 
   useEffect(() => {
     const fetchInitialReports = async () => {
       try {
         const { data, error } = await supabase
-          .from('reports_index')
-          .select('*')
-          .order('created_at', { ascending: false });
-        
+          .from("reports_index")
+          .select("*")
+          .order("created_at", { ascending: false });
+
         if (error) throw error;
         setReports(data || []);
       } catch (err) {
@@ -37,15 +40,20 @@ export default function DashboardPage() {
     fetchInitialReports();
 
     const channel = supabase
-      .channel('live_reports')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports_index' }, 
+      .channel("live_reports")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reports_index" },
         (payload) => {
-          if (payload.eventType === 'INSERT') {
+          if (payload.eventType === "INSERT") {
             setReports((prev) => [payload.new, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setReports((prev) => prev.map(r => r.report_id === payload.new.report_id ? payload.new : r));
+          } else if (payload.eventType === "UPDATE") {
+            setReports((prev) =>
+              prev.map((r) => r.report_id === payload.new.report_id ? payload.new : r)
+            );
           }
-      })
+        }
+      )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -53,76 +61,108 @@ export default function DashboardPage() {
 
   const handleAction = async (reportId: string, action: string, comment?: string) => {
     try {
-      if (action === "comment" && comment) {
-        // Hex encode comment for Aleo field compatibility
-        await addComment(reportId, `0x${Buffer.from(comment).toString('hex')}`);
-        alert("Comment added to blockchain");
-      } else {
-        const newStatus = action === "approve" ? 3 : 4; // 3=Resolved, 4=Rejected
-        
-        await updateStatus(reportId, newStatus);
-        
-        const { error } = await supabase
-          .from('reports_index')
-          .update({ status: newStatus, updated_at: new Date() })
-          .eq('report_id', reportId);
+      if (action === "comment") {
+        if (!comment?.trim()) {
+          alert("Please enter a comment before posting.");
+          return;
+        }
 
-        if (error) throw error;
-        alert(`Report ${action === "approve" ? "Resolved" : "Rejected"} successfully`);
+        // Store comment off-chain in Supabase (the Leo contract has no add_comment function)
+        const { error } = await supabase
+          .from("report_comments")
+          .insert([{
+            report_id: reportId,
+            comment:   comment.trim(),
+            created_at: new Date().toISOString(),
+          }]);
+
+        if (error) {
+          console.error("Comment insert error:", error);
+          alert("Could not save comment. Check your Supabase schema.");
+        } else {
+          alert("Comment saved.");
+        }
+        return;
       }
+
+      // approve → status 3 (Resolved), reject → status 4 (Rejected)
+      const newStatus = action === "approve" ? 3 : 4;
+
+      await updateStatus(reportId, newStatus);
+
+      const { error } = await supabase
+        .from("reports_index")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("report_id", reportId);
+
+      if (error) throw error;
+
+      alert(`Report ${action === "approve" ? "resolved" : "rejected"} on-chain.`);
     } catch (error) {
       console.error("Action failed:", error);
-      alert("Blockchain transaction failed. Check wallet.");
+      alert("Blockchain transaction failed. Check your wallet connection.");
     }
   };
 
   const handleUnlockReport = async (report: any) => {
-    const reviewerSK = prompt("Enter Reviewer Private Key to decrypt evidence:");
+    const reviewerSK = prompt("Enter your Aleo private key to decrypt this report:");
     if (!reviewerSK) return;
 
     try {
-      const { Group, PrivateKey } = await import('@provablehq/sdk');
+      const { Group, PrivateKey } = await import("@provablehq/sdk");
 
       const privKey = PrivateKey.from_string(reviewerSK);
-      
-      // Fetch full on-chain mapping data to get ephemeral keys
+
+      // Fetch the EncryptedContent mapping from the blockchain
       const response = await fetch(
-        `https://api.provable.com/v2/testnet/program/new_whistleblowing_version1.aleo/mapping/encrypted_contents/${report.report_id}field`
+        `${PROVABLE_API}/program/${PROGRAM}/mapping/encrypted_contents/${report.report_id}field`
       );
+      if (!response.ok) {
+        throw new Error(`Blockchain mapping fetch failed: ${response.statusText}`);
+      }
+
       const rawMapping = await response.json();
-      const chainData = parseAleoStruct(rawMapping);
+      const chainData  = parseAleoStruct(rawMapping);
 
-      console.log("Chain Data for Decryption:", chainData);
-      // ECDH Shared Secret Calculation
-      const ephemeralPoint = Group.fromString(chainData.ephemeral_key);
-      console.log("Ephemeral Point from Chain:", ephemeralPoint.toString());
-      const sharedSecretPoint = ephemeralPoint.scalarMultiply(privKey.to_view_key().to_scalar());
-      const secretBI = BigInt(sharedSecretPoint.toString().replace(/group$/, ''));
+      // Reconstruct the ephemeral public-key group point from the stored x-coordinate.
+      // During encryption we stored: ephemeral.address().toGroup().toString() stripped of "group".
+      // Group.fromString("Xgroup") gives the curve point with x-coordinate X.
+      const ephemeralPoint = Group.fromString(chainData.ephemeral_key + "group");
 
-      // Recover AES Key via XOR
-      const encryptedKeyBI = BigInt(chainData.reviewer_key);
-      const recoveredKey = (encryptedKeyBI ^ secretBI).toString();
+      // ECDH: ephemeral.pubKey × reviewer.viewKey_scalar = same shared secret as encryption
+      const reviewerScalar     = privKey.to_view_key().to_scalar();
+      const sharedSecretPoint  = ephemeralPoint.scalarMultiply(reviewerScalar);
 
-      // Fetch from IPFS and Decrypt
-      const encryptedBlob = await fetchFromIPFS(chainData.evidence_hash);
-      const decryptedData = await decryptWithAES(encryptedBlob, recoveredKey);
+      // Recover the AES case key via XOR (mask must match the encryption step)
+      const recoveredKey = recoverCaseKey(chainData.reviewer_key, sharedSecretPoint.toString());
 
-      setUnlockedContent(prev => ({
+      // Fetch the encrypted report blob from IPFS.
+      // Prefer the CID stored in Supabase (evidence_cid); fall back to chain's evidence field.
+      const cid = report.evidence_cid ?? chainData.evidence_hash;
+      if (!cid || cid === "0") {
+        throw new Error("No valid IPFS CID found for this report.");
+      }
+
+      const encryptedBlob  = await fetchFromIPFS(cid);
+      const decryptedData  = await decryptWithAES(encryptedBlob, recoveredKey);
+
+      setUnlockedContent((prev) => ({
         ...prev,
-        [report.report_id]: JSON.parse(decryptedData)
+        [report.report_id]: JSON.parse(decryptedData),
       }));
-
-    } catch (err) {
+    } catch (err: any) {
       console.error("Decryption failed:", err);
-      alert("Decryption failed: You may not be the authorized reviewer for this case.");
+      alert(
+        `Decryption failed: ${err?.message ?? "You may not be the authorised reviewer for this case."}`
+      );
     }
   };
 
   return (
     <div className="min-h-screen pt-24 px-4 cyber-grid">
       <div className="max-w-7xl mx-auto">
-        
-        {/* Header Section */}
+
+        {/* Header */}
         <div className="flex justify-between items-end mb-8">
           <div>
             <h1 className="text-4xl font-bold glitch-text flex items-center">
@@ -149,7 +189,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Reports Content */}
+        {/* Reports */}
         {loading ? (
           <div className="text-center py-20">
             <div className="animate-spin h-10 w-10 border-4 border-neon-green border-t-transparent rounded-full mx-auto mb-4" />
@@ -159,7 +199,7 @@ export default function DashboardPage() {
           <div className="terminal-window text-center py-20 border-dashed">
             <Shield className="h-16 w-16 text-gray-700 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-gray-500">NO PENDING CASES FOUND</h2>
-            <p className="text-gray-600 font-mono text-sm mt-2">Waiting for new incoming transmissions...</p>
+            <p className="text-gray-600 font-mono text-sm mt-2">Waiting for incoming transmissions...</p>
           </div>
         ) : (
           <div className="grid gap-6">
@@ -176,7 +216,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Overlays */}
       {selectedReport && (
         <ReviewModal
           report={selectedReport}
