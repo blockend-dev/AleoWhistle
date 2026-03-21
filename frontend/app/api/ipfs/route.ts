@@ -13,15 +13,15 @@ export async function POST(request: Request) {
     });
 
     const result = await pinataResponse.json();
-console.log("JWT Length:", process.env.PINATA_JWT?.length);
-console.log("JWT Starts With:", process.env.PINATA_JWT?.substring(0, 10));
+
     if (!pinataResponse.ok) {
-      console.error("Pinata Error:", result);
+      console.error("Pinata error:", result);
       return NextResponse.json(result, { status: pinataResponse.status });
     }
 
     return NextResponse.json(result);
   } catch (error) {
+    console.error("IPFS route error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
