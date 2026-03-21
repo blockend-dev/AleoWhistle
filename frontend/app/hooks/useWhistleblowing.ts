@@ -1,6 +1,5 @@
 "use client"
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
-import { cidToAleoField } from "@/app/lib/crypto";
 
 export function useWhistleblowing() {
   const { executeTransaction, transactionStatus } = useWallet();
@@ -33,93 +32,65 @@ export function useWhistleblowing() {
     severity,
     contentHash,
     evidenceCID,
-    adminKeyField,    // Encrypted AES key for Admin
+    adminKeyField,     // Encrypted AES key for Admin
     reviewerKeyField,  // Encrypted AES key for Reviewer
-    ephemeralKey
-  }: any) => {
-    try {
+    ephemeralKey       // Shared ephemeral group point (x-coordinate, no suffix)
+  }: {
+    seed: string;
+    category: number;
+    severity: number;
+    contentHash: string;
+    evidenceCID: string;
+    adminKeyField: string;
+    reviewerKeyField: string;
+    ephemeralKey: string;
+  }) => {
+    const { cidToAleoField } = await import("@/app/lib/crypto");
+    const evidenceField = cidToAleoField(evidenceCID);
 
-      console.log( contentHash, evidenceCID);
-      const evidenceField = cidToAleoField(evidenceCID);
+    const tx = await executeTransaction({
+      program: "new_whistleblowing_version1.aleo",
+      function: "submit_report",
+      inputs: [
+        `${seed}field`,           // private reporter_seed: field
+        `${category}u8`,          // public category: u8
+        `${severity}u8`,          // public severity: u8
+        `${contentHash}`,         // public content_hash: field  (already has suffix)
+        `${evidenceField}`,       // public evidence_hash: field (already has suffix)
+        `${evidenceField}`,       // public encrypted_data: field (same CID)
+        `${adminKeyField}field`,  // public admin_key: field
+        `${reviewerKeyField}field`, // public reviewer_key: field
+        `${ephemeralKey}field`,   // public ephemeral_key: field (group x-coord)
+      ],
+      fee: 1500000,
+      privateFee: false,
+    });
 
-      const tx = await executeTransaction({
-        program: "new_whistleblowing_version1.aleo",
-        function: "submit_report",
-        inputs: [
-          `${seed}field`,
-          `${category}u8`,
-          `${severity}u8`,
-          `${contentHash}`,
-          `${evidenceField}`,      // evidence_hash
-          `${evidenceField}`,      // encrypted_data (pointing to same CID)
-          `${adminKeyField}field`,      // admin_key
-          `${reviewerKeyField}field`,    // reviewer_key
-          `${ephemeralKey}`         // ephemeral_key
-        ],
-        fee: 1500000,
-        privateFee: false,
-      });
-
-      const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
-      const finalTxId = await pollTransaction(temporaryId);
-      console.log('Report submitted with Tx ID:', finalTxId);
-      return { finalTxId };
-    } catch (error) {
-      console.error('Submit report failed:', error);
-      throw error;
-    }
+    const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
+    const finalTxId = await pollTransaction(temporaryId);
+    return { finalTxId };
   };
 
   const updateStatus = async (reportId: string, newStatus: number) => {
-    try {
-      const tx = await executeTransaction({
-        program: "new_whistleblowing_version1.aleo",
-        function: "update_status",
-        inputs: [reportId, newStatus.toString()],
-        fee: 50000,
-        privateFee: false,
-      })
+    const tx = await executeTransaction({
+      program: "new_whistleblowing_version1.aleo",
+      function: "update_status",
+      inputs: [
+        `${reportId}field`,  // public report_id: field
+        `${newStatus}u8`,    // public new_status: u8
+      ],
+      fee: 50000,
+      privateFee: false,
+    });
 
-      const temporaryId = typeof tx === "string" ? tx : tx?.transactionId
-      if (!temporaryId) throw new Error("No transaction ID")
+    const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
+    if (!temporaryId) throw new Error("No transaction ID returned");
 
-      const finalTxId = await pollTransaction(temporaryId)
-      return finalTxId
-    } catch (error) {
-      console.error('Update status failed:', error)
-      throw error
-    }
-  }
-
-  const addComment = async (reportId: string, encryptedNote: string) => {
-    try {
-      const tx = await executeTransaction({
-        program: "new_whistleblowing_version1.aleo",
-        function: "add_comment",
-        inputs: [reportId, encryptedNote],
-        fee: 50000,
-        privateFee: false,
-      })
-
-      const temporaryId = typeof tx === "string" ? tx : tx?.transactionId
-      if (!temporaryId) throw new Error("No transaction ID")
-
-      const finalTxId = await pollTransaction(temporaryId)
-      return finalTxId
-    } catch (error) {
-      console.error('Add comment failed:', error)
-      throw error
-    }
-  }
-
-  // Helper to derive report_id (must match contract's Poseidon2::hash_to_field)
-  const deriveReportId = async (seed: string): Promise<string> => {
-    return seed
-  }
+    return pollTransaction(temporaryId);
+  };
 
   return {
     submitReport,
     updateStatus,
-    addComment
-  }
+  };
 }
