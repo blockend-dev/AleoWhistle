@@ -9,6 +9,7 @@ export function useWhistleblowing() {
       const interval = setInterval(async () => {
         try {
           const status = await transactionStatus?.(temporaryId);
+          console.log(status)
           if (!status) return;
 
           if (status.status === "Accepted" && status.transactionId) {
@@ -19,6 +20,7 @@ export function useWhistleblowing() {
             reject(new Error(`Transaction ${status.status}`));
           }
         } catch (error) {
+          console.log(error)
           clearInterval(interval);
           reject(error);
         }
