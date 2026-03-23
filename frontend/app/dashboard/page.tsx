@@ -213,7 +213,7 @@ function JudgePanel({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reporter status checker (shared between non-admin and unauthenticated views)
+// Reporter status checker 
 // ─────────────────────────────────────────────────────────────────────────────
 function ReporterStatusChecker() {
   const [reportId, setReportId] = useState("");
@@ -362,7 +362,9 @@ export default function DashboardPage() {
   const [adminPrivKey, setAdminPrivKey]     = useState(DEMO_KEY);
   const [showKeyPanel, setShowKeyPanel]     = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  // per-report-action loading:  key = `${reportId}-${action}`
   const [actionLoading, setActionLoading]   = useState<Record<string, boolean>>({});
+  // comments keyed by report_id
   const [comments, setComments]             = useState<Record<string, any[]>>({});
 
   const { updateStatus } = useWhistleblowing();
@@ -417,8 +419,8 @@ export default function DashboardPage() {
     setComments((prev) => ({ ...prev, [reportId]: data ?? [] }));
   };
 
+  // ── Decrypt a report using the admin's private key ───────────────────────
 
-  //
   const handleUnlockReport = async (report: any) => {
     if (!adminPrivKey) {
       toast.warning("Admin private key not loaded. Open the Judge Panel and enter the key.");
@@ -444,8 +446,6 @@ export default function DashboardPage() {
         r.transactionId.trim() == report.tx_id &&
         !r.spent
       );
-      console.log(report)
-      console.log(match);
 
       if (!match) {
         throw new Error(
@@ -480,12 +480,14 @@ export default function DashboardPage() {
 
       setUnlockedContent((prev) => ({ ...prev, [report.report_id]: JSON.parse(plain) }));
       toast.success("Report decrypted successfully", { id: toastId });
+      return true;
     } catch (err: any) {
       console.error("Decryption failed:", err);
       toast.error(
         `Decryption failed: ${err?.message ?? "Invalid key or corrupted data."}`,
         { id: toastId }
       );
+      return false;
     } finally {
       setAction(report.report_id, "decrypt", false);
     }
@@ -493,11 +495,11 @@ export default function DashboardPage() {
 
   // ── One-click: auto-decrypt then open modal ──────────────────────────────
   const handleViewReport = async (report: any) => {
-    // Fetch comments whenever the modal is opened
-    fetchComments(report.report_id);
     if (!unlockedContent[report.report_id] && adminPrivKey) {
-      await handleUnlockReport(report);
+      const ok = await handleUnlockReport(report);
+      if (!ok) return; // don't open modal if decryption failed
     }
+    fetchComments(report.report_id);
     setSelectedReport(report);
   };
 
@@ -565,6 +567,7 @@ export default function DashboardPage() {
     } catch (err: any) {
       console.error("Action failed:", err);
       toast.error(`Transaction failed: ${err?.message ?? "Check wallet connection."}`, { id: toastId });
+      setSelectedReport(null); // close modal on failure — don't leave it in a confusing state
     } finally {
       setAction(reportId, actionKey, false);
     }
@@ -632,9 +635,7 @@ export default function DashboardPage() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // VIEW: Connected but NOT admin → reporter-only status checker
-  // ─────────────────────────────────────────────────────────────────────────
+
   if (!isAdmin) {
     return (
       <div className="min-h-screen cyber-grid">
