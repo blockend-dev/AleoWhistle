@@ -1,4 +1,17 @@
-program new_whistleblowing_version1.aleo;
+program whistleblowing_version2.aleo;
+
+record ReporterReceipt:
+    owner as address.private;
+    report_id as field.private;
+    category as u8.private;
+    severity as u8.private;
+
+record EncryptedReport:
+    owner as address.private;
+    report_id as field.private;
+    encrypted_data as field.private;
+    encrypted_key as field.private;
+    ephemeral_key as field.private;
 
 struct Report:
     report_id as field;
@@ -16,13 +29,6 @@ struct ReportMeta:
     timestamp as u64;
     status as u8;
 
-struct EncryptedContent:
-    report_id as field;
-    encrypted_data as field;
-    admin_key as field;
-    reviewer_key as field;
-    ephemeral_key as field;
-
 mapping reports:
     key as field.public;
     value as Report.public;
@@ -30,10 +36,6 @@ mapping reports:
 mapping report_meta:
     key as field.public;
     value as ReportMeta.public;
-
-mapping encrypted_contents:
-    key as field.public;
-    value as EncryptedContent.public;
 
 mapping admins:
     key as address.public;
@@ -49,7 +51,7 @@ mapping stats:
 
 function initialize:
     async initialize self.caller into r0;
-    output r0 as new_whistleblowing_version1.aleo/initialize.future;
+    output r0 as whistleblowing_version2.aleo/initialize.future;
 
 finalize initialize:
     input r0 as address.public;
@@ -68,13 +70,21 @@ function submit_report:
     input r3 as field.public;
     input r4 as field.public;
     input r5 as field.public;
-    input r6 as field.public;
+    input r6 as address.public;
     input r7 as field.public;
-    input r8 as field.public;
-    hash.psd2 r0 into r9 as field;
-    async submit_report r9 r1 r2 r3 r4 r5 r6 r7 r8 into r10;
-    output r9 as field.private;
-    output r10 as new_whistleblowing_version1.aleo/submit_report.future;
+    input r8 as address.public;
+    input r9 as field.public;
+    input r10 as field.public;
+    hash.psd2 r0 into r11 as field;
+    cast self.caller into r12 as address;
+    cast r12 r11 r1 r2 into r13 as ReporterReceipt.record;
+    cast r6 r11 r5 r7 r10 into r14 as EncryptedReport.record;
+    cast r8 r11 r5 r9 r10 into r15 as EncryptedReport.record;
+    async submit_report r11 r1 r2 r3 r4 into r16;
+    output r13 as ReporterReceipt.record;
+    output r14 as EncryptedReport.record;
+    output r15 as EncryptedReport.record;
+    output r16 as whistleblowing_version2.aleo/submit_report.future;
 
 finalize submit_report:
     input r0 as field.public;
@@ -82,23 +92,17 @@ finalize submit_report:
     input r2 as u8.public;
     input r3 as field.public;
     input r4 as field.public;
-    input r5 as field.public;
-    input r6 as field.public;
-    input r7 as field.public;
-    input r8 as field.public;
-    cast block.height into r9 as u64;
-    cast r0 r1 r2 r9 r3 r4 1u8 into r10 as Report;
-    cast r0 r1 r2 r9 1u8 into r11 as ReportMeta;
-    cast r0 r5 r6 r7 r8 into r12 as EncryptedContent;
-    set r10 into reports[r0];
-    set r11 into report_meta[r0];
-    set r12 into encrypted_contents[r0];
-    get.or_use stats[0u8] 0u64 into r13;
-    get.or_use stats[1u8] 0u64 into r14;
-    add r13 1u64 into r15;
-    set r15 into stats[0u8];
-    add r14 1u64 into r16;
-    set r16 into stats[1u8];
+    cast block.height into r5 as u64;
+    cast r0 r1 r2 r5 r3 r4 1u8 into r6 as Report;
+    set r6 into reports[r0];
+    cast r0 r1 r2 r5 1u8 into r7 as ReportMeta;
+    set r7 into report_meta[r0];
+    get.or_use stats[0u8] 0u64 into r8;
+    get.or_use stats[1u8] 0u64 into r9;
+    add r8 1u64 into r10;
+    set r10 into stats[0u8];
+    add r9 1u64 into r11;
+    set r11 into stats[1u8];
 
 function check_status_privately:
     input r0 as field.private;
@@ -111,7 +115,7 @@ function update_status:
     input r0 as field.public;
     input r1 as u8.public;
     async update_status self.caller r0 r1 into r2;
-    output r2 as new_whistleblowing_version1.aleo/update_status.future;
+    output r2 as whistleblowing_version2.aleo/update_status.future;
 
 finalize update_status:
     input r0 as address.public;
@@ -141,7 +145,7 @@ finalize update_status:
 function add_reviewer:
     input r0 as address.public;
     async add_reviewer self.caller r0 into r1;
-    output r1 as new_whistleblowing_version1.aleo/add_reviewer.future;
+    output r1 as whistleblowing_version2.aleo/add_reviewer.future;
 
 finalize add_reviewer:
     input r0 as address.public;
