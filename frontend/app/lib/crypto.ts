@@ -27,16 +27,7 @@ export function generateSeed(): string {
 
 /**
  * Encrypts a case key for TWO recipients (admin + reviewer) using a SINGLE
- * ephemeral key pair. This ensures the on-chain `ephemeral_key` field can be
- * used by EITHER party to reconstruct the ECDH shared secret and recover their
- * respective encrypted key.
- *
- * Scheme:
- *   sharedSecret_admin    = ephemeral.viewKey × admin.pubKey
- *   sharedSecret_reviewer = ephemeral.viewKey × reviewer.pubKey
- *   adminEncryptedKey     = (caseKey XOR sharedSecret_admin)  & mask250
- *   reviewerEncryptedKey  = (caseKey XOR sharedSecret_reviewer) & mask250
- *   ephemeralField        = x-coordinate of ephemeral public-key group point
+ * ephemeral key pair.
  */
 export async function encryptCaseKeyForBothRecipients(
   caseKeyField: string,
@@ -181,10 +172,6 @@ export async function decryptWithAES(encryptedBlob: Blob, keyString: string): Pr
 
 /**
  * Recovers the original case key via ECDH XOR decryption.
- *
- *   recoveredKey = encryptedKey XOR (ephemeral.pubKey × reviewer.viewKey) & mask250
- *
- * The mask must match what was used during encryption so the XOR cancels correctly.
  */
 export function recoverCaseKey(encryptedKeyStr: string, sharedSecretGroupStr: string): string {
   const mask         = (BigInt(1) << BigInt(250)) - BigInt(1);
@@ -233,6 +220,26 @@ export const parseReportIdFromReceipt = (receipt: any): string => {
   }
 };
 
+/**
+ * Extract the three record ciphertexts emitted by submit_report v2.
+ */
+export const parseRecordCiphertexts = (
+  receipt: any
+): { reporterReceipt: string; adminRecord: string; reviewerRecord: string } => {
+  try {
+    const transitions: any[] = receipt?.execution?.transitions ?? [];
+    const reportTx = transitions.find((t: any) => t.function === 'submit_report');
+    const records = (reportTx?.outputs ?? []).filter((o: any) => o.type === 'record');
+    return {
+      reporterReceipt: records[0]?.value ?? '',
+      adminRecord:     records[1]?.value ?? '',
+      reviewerRecord:  records[2]?.value ?? '',
+    };
+  } catch {
+    return { reporterReceipt: '', adminRecord: '', reviewerRecord: '' };
+  }
+};
+
 export const parseAleoStruct = (structStr: string): Record<string, string> => {
   // Handle case where input is not a string (e.g. already parsed JSON object)
   const raw = typeof structStr === 'string' ? structStr : JSON.stringify(structStr);
@@ -247,7 +254,8 @@ export const parseAleoStruct = (structStr: string): Record<string, string> => {
     if (colonIdx === -1) continue;
 
     const key = pair.slice(0, colonIdx).trim();
-    const val = pair.slice(colonIdx + 1).trim();
+    // Strip Aleo visibility modifiers (.private / .public) before type processing
+    const val = pair.slice(colonIdx + 1).trim().replace(/\.(private|public)$/, '').trim();
 
     if (!key || !val) continue;
 

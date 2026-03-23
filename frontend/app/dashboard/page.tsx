@@ -5,6 +5,7 @@ import {
   Shield, Activity, RefreshCw, Key, Copy, CheckCircle,
   Search, Eye, EyeOff, ChevronDown, ChevronUp,
 } from "lucide-react";
+import { toast } from "@/app/lib/toast";
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 import { WalletMultiButton } from "@provablehq/aleo-wallet-adaptor-react-ui";
 import { ReportCard }   from "@/app/components/ReportCard";
@@ -14,14 +15,11 @@ import { decryptWithAES, parseAleoStruct, recoverCaseKey, REPORT_STATUS } from "
 import { useIPFS } from "@/app/hooks/useIPFS";
 import { supabase } from "../lib/db";
 
-const PROGRAM      = process.env.NEXT_PUBLIC_PROGRAM ?? "new_whistleblowing_version1.aleo";
-const PROVABLE_API = "https://api.provable.com/v2/testnet";
-const ADMIN_ADDR   = process.env.NEXT_PUBLIC_ADMIN_ADDR!;
+const PROGRAM    = process.env.NEXT_PUBLIC_PROGRAM ?? "whistleblowing_version2.aleo";
+const ADMIN_ADDR = process.env.NEXT_PUBLIC_ADMIN_ADDR!;
 const DEMO_KEY     = process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY ?? "";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Demo banner — shown at top of page whenever the visitor is not admin
-// ─────────────────────────────────────────────────────────────────────────────
+
 function DemoBanner({ onDismiss }: { onDismiss: () => void }) {
   const { copied, copy } = useCopy();
   const [showKey, setShowKey] = useState(false);
@@ -218,21 +216,37 @@ function JudgePanel({
 // Reporter status checker (shared between non-admin and unauthenticated views)
 // ─────────────────────────────────────────────────────────────────────────────
 function ReporterStatusChecker() {
-  const [reportId, setReportId]     = useState("");
-  const [result, setResult]         = useState<any>(null);
-  const [loading, setLoading]       = useState(false);
+  const [reportId, setReportId] = useState("");
+  const [result, setResult]     = useState<any>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [loading, setLoading]   = useState(false);
 
   const checkStatus = async () => {
     if (!reportId.trim()) return;
     setLoading(true);
     setResult(null);
+    setComments([]);
     try {
-      const { data, error } = await supabase
-        .from("reports_index")
-        .select("report_id, status, category, severity, created_at, updated_at")
-        .eq("report_id", reportId.trim())
-        .single();
-      setResult(error || !data ? { error: "Report not found. Verify your Report ID." } : data);
+      // Fetch status + comments in parallel
+      const [{ data, error }, { data: commentData }] = await Promise.all([
+        supabase
+          .from("reports_index")
+          .select("report_id, status, category, severity, created_at, updated_at")
+          .eq("report_id", reportId.trim())
+          .single(),
+        supabase
+          .from("report_comments")
+          .select("id, comment, created_at")
+          .eq("report_id", reportId.trim())
+          .order("created_at", { ascending: true }),
+      ]);
+
+      if (error || !data) {
+        setResult({ error: "Report not found. Verify your Report ID." });
+      } else {
+        setResult(data);
+        setComments(commentData ?? []);
+      }
     } catch {
       setResult({ error: "Could not query status. Try again shortly." });
     } finally {
@@ -269,32 +283,55 @@ function ReporterStatusChecker() {
       </div>
 
       {result && (
-        <div className={`mt-5 p-4 rounded-lg border ${
-          result.error
-            ? "border-neon-red/30 bg-neon-red/5"
-            : "border-neon-green/30 bg-neon-green/5"
+        <div className={`mt-5 rounded-lg border ${
+          result.error ? "border-neon-red/30 bg-neon-red/5" : "border-neon-green/30 bg-neon-green/5"
         }`}>
           {result.error ? (
-            <p className="text-neon-red font-mono text-sm">{result.error}</p>
+            <p className="text-neon-red font-mono text-sm p-4">{result.error}</p>
           ) : (
-            <div className="space-y-3 font-mono text-sm">
-              <Row label="STATUS">
-                <span className={`font-bold ${REPORT_STATUS[result.status]?.color ?? "text-gray-400"}`}>
-                  {REPORT_STATUS[result.status]?.label ?? "Unknown"}
-                </span>
-              </Row>
-              <Row label="SUBMITTED">
-                {new Date(result.created_at).toLocaleString()}
-              </Row>
-              {result.updated_at && (
-                <Row label="LAST UPDATE">
-                  {new Date(result.updated_at).toLocaleString()}
+            <>
+              {/* ── Status rows ── */}
+              <div className="p-4 space-y-3 font-mono text-sm">
+                <Row label="STATUS">
+                  <span className={`font-bold ${REPORT_STATUS[result.status]?.color ?? "text-gray-400"}`}>
+                    {REPORT_STATUS[result.status]?.label ?? "Unknown"}
+                  </span>
                 </Row>
+                <Row label="SUBMITTED">
+                  {new Date(result.created_at).toLocaleString()}
+                </Row>
+                {result.updated_at && (
+                  <Row label="LAST UPDATE">
+                    {new Date(result.updated_at).toLocaleString()}
+                  </Row>
+                )}
+                <Row label="REPORT ID">
+                  <span className="text-gray-400">{String(result.report_id).slice(0, 14)}…</span>
+                </Row>
+              </div>
+
+              {/* ── Reviewer comments ── */}
+              {comments.length > 0 && (
+                <div className="border-t border-neon-green/20 px-4 pb-4 pt-3">
+                  <p className="text-xs text-neon-purple font-mono font-bold mb-2 uppercase tracking-widest">
+                    Reviewer Notes ({comments.length})
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {comments.map((c) => (
+                      <div
+                        key={c.id}
+                        className="bg-cyber-black/60 rounded-lg px-3 py-2 border border-neon-purple/20"
+                      >
+                        <p className="text-gray-300 text-xs font-mono leading-relaxed">{c.comment}</p>
+                        <p className="text-gray-600 text-[10px] mt-1 font-mono">
+                          {new Date(c.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
-              <Row label="REPORT ID">
-                <span className="text-gray-400">{String(result.report_id).slice(0, 14)}…</span>
-              </Row>
-            </div>
+            </>
           )}
         </div>
       )}
@@ -315,19 +352,26 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { address, connected } = useWallet();
+  const { address, connected, requestRecords,decrypt } = useWallet();
   const isAdmin = connected && address === ADMIN_ADDR;
 
-  const [reports, setReports]           = useState<any[]>([]);
+  const [reports, setReports]               = useState<any[]>([]);
   const [selectedReport, setSelectedReport] = useState<any>(null);
-  const [loading, setLoading]           = useState(true);
+  const [loading, setLoading]               = useState(true);
   const [unlockedContent, setUnlockedContent] = useState<Record<string, any>>({});
-  const [adminPrivKey, setAdminPrivKey] = useState(DEMO_KEY);
-  const [showKeyPanel, setShowKeyPanel] = useState(false);
+  const [adminPrivKey, setAdminPrivKey]     = useState(DEMO_KEY);
+  const [showKeyPanel, setShowKeyPanel]     = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [actionLoading, setActionLoading]   = useState<Record<string, boolean>>({});
+  const [comments, setComments]             = useState<Record<string, any[]>>({});
 
   const { updateStatus } = useWhistleblowing();
   const { fetchFromIPFS } = useIPFS();
+
+  const setAction = (reportId: string, action: string, on: boolean) =>
+    setActionLoading((prev) => ({ ...prev, [`${reportId}-${action}`]: on }));
+  const isActionLoading = (reportId: string, action: string) =>
+    !!actionLoading[`${reportId}-${action}`];
 
   useEffect(() => {
     const fetchReports = async () => {
@@ -363,75 +407,166 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // ── Decrypt a report using the loaded admin private key ──────────────────
+  // ── Fetch comments for a report ─────────────────────────────────────────
+  const fetchComments = async (reportId: string) => {
+    const { data } = await supabase
+      .from("report_comments")
+      .select("*")
+      .eq("report_id", reportId)
+      .order("created_at", { ascending: true });
+    setComments((prev) => ({ ...prev, [reportId]: data ?? [] }));
+  };
+
+
+  //
   const handleUnlockReport = async (report: any) => {
     if (!adminPrivKey) {
-      alert("Admin private key not loaded. Open the Judge Panel and enter the key.");
+      toast.warning("Admin private key not loaded. Open the Judge Panel and enter the key.");
       return;
     }
+    setAction(report.report_id, "decrypt", true);
+    const toastId = toast.loading("Loading report keys…");
     try {
       const { Group, PrivateKey } = await import("@provablehq/sdk");
       const privKey = PrivateKey.from_string(adminPrivKey);
+      const viewKey = privKey.to_view_key();
 
-      const res = await fetch(
-        `${PROVABLE_API}/program/${PROGRAM}/mapping/encrypted_contents/${report.report_id}field`
+      // ── Fetch EncryptedReport record from wallet ────────────────────────
+      if (!requestRecords) {
+        throw new Error("Wallet does not support requestRecords. Please use a compatible Aleo wallet.");
+      }
+
+      toast.loading("Fetching records from wallet…", { id: toastId });
+      const records: any[] = await requestRecords(PROGRAM, false);
+      // Match by transactionId + not spent + correct record type
+      const match = records.find((r: any) =>
+        r.recordName === "EncryptedReport" &&
+        r.transactionId.trim() == report.tx_id &&
+        !r.spent
       );
-      if (!res.ok) throw new Error(`Chain mapping fetch failed: ${res.statusText}`);
+      console.log(report)
+      console.log(match);
 
-      const chainData = parseAleoStruct(await res.json());
+      if (!match) {
+        throw new Error(
+          "No unspent EncryptedReport record found for this transaction. " +
+          "Ensure the admin wallet is connected and owns this record."
+        );
+      }
 
-      // Reconstruct ephemeral public key from stored x-coordinate
-      const ephemeralPoint     = Group.fromString(chainData.ephemeral_key + "group");
-      const adminScalar        = privKey.to_view_key().to_scalar();
-      const sharedSecretPoint  = ephemeralPoint.scalarMultiply(adminScalar);
+      // Decrypt the raw ciphertext with the view key to get plaintext struct
+      toast.loading("Decrypting record with view key…", { id: toastId });
+      const plaintextStr = await decrypt(match.recordCiphertext);
+      const recordData   = parseAleoStruct(plaintextStr);
+      const encrypted_key = recordData.encrypted_key ?? "";
+      const ephemeral_key = recordData.ephemeral_key ?? "";
 
-      // Recover AES case key (use admin_key since we're authenticating as admin)
-      const recoveredKey = recoverCaseKey(chainData.admin_key, sharedSecretPoint.toString());
+      if (!encrypted_key || !ephemeral_key) {
+        throw new Error("Could not extract encryption keys from the decrypted record.");
+      }
 
-      // Fetch encrypted blob from IPFS (Supabase CID takes priority)
-      const cid = report.evidence_cid ?? chainData.evidence_hash;
+      toast.loading("Computing ECDH shared secret…", { id: toastId });
+      const ephemeralPoint    = Group.fromString(ephemeral_key + "group");
+      const adminScalar       = viewKey.to_scalar();
+      const sharedSecretPoint = ephemeralPoint.scalarMultiply(adminScalar);
+      const recoveredKey      = recoverCaseKey(encrypted_key, sharedSecretPoint.toString());
+
+      toast.loading("Downloading encrypted blob from IPFS…", { id: toastId });
+      const cid = report.evidence_cid;
       if (!cid || cid === "0") throw new Error("No IPFS CID found for this report.");
 
       const encryptedBlob = await fetchFromIPFS(cid);
       const plain         = await decryptWithAES(encryptedBlob, recoveredKey);
 
       setUnlockedContent((prev) => ({ ...prev, [report.report_id]: JSON.parse(plain) }));
+      toast.success("Report decrypted successfully", { id: toastId });
     } catch (err: any) {
       console.error("Decryption failed:", err);
-      alert(`Decryption failed: ${err?.message ?? "Invalid key or corrupted data."}`);
+      toast.error(
+        `Decryption failed: ${err?.message ?? "Invalid key or corrupted data."}`,
+        { id: toastId }
+      );
+    } finally {
+      setAction(report.report_id, "decrypt", false);
     }
   };
 
   // ── One-click: auto-decrypt then open modal ──────────────────────────────
   const handleViewReport = async (report: any) => {
+    // Fetch comments whenever the modal is opened
+    fetchComments(report.report_id);
     if (!unlockedContent[report.report_id] && adminPrivKey) {
       await handleUnlockReport(report);
     }
     setSelectedReport(report);
   };
 
-  // ── Status change (resolve / reject) ────────────────────────────────────
+  // ── Status change (resolve / reject) + comments ──────────────────────────
   const handleAction = async (reportId: string, action: string, comment?: string) => {
-    try {
-      if (action === "comment") {
-        if (!comment?.trim()) return;
-        await supabase.from("report_comments").insert([{
+    if (action === "comment") {
+      if (!comment?.trim()) return;
+      setAction(reportId, "comment", true);
+      try {
+        const { error } = await supabase.from("report_comments").insert([{
           report_id:  reportId,
           comment:    comment.trim(),
           created_at: new Date().toISOString(),
         }]);
-        return;
+        if (error) throw error;
+        // Refresh comments list so they show immediately
+        await fetchComments(reportId);
+        toast.success("Comment posted.");
+      } catch (err: any) {
+        toast.error(`Comment failed: ${err?.message}`);
+      } finally {
+        setAction(reportId, "comment", false);
       }
+      return;
+    }
 
-      const newStatus = action === "approve" ? 3 : 4;
-      await updateStatus(reportId, newStatus);
-      await supabase
+    const newStatus = action === "approve" ? 3 : 4;
+    const actionKey = action === "approve" ? "approve" : "reject";
+    setAction(reportId, actionKey, true);
+
+    const toastId = toast.loading(
+      action === "approve" ? "Resolving report on-chain…" : "Rejecting report on-chain…"
+    );
+
+    try {
+      await updateStatus(reportId, newStatus, (msg) =>
+        toast.loading(msg, { id: toastId })
+      );
+
+      // Update Supabase + optimistically patch local state
+      const now = new Date().toISOString();
+      const { error: dbErr } = await supabase
         .from("reports_index")
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .update({ status: newStatus, updated_at: now })
         .eq("report_id", reportId);
-    } catch (err) {
+
+      if (dbErr) {
+        // Surface the Supabase error — likely an RLS policy issue
+        console.error("Supabase update error:", dbErr);
+        toast.warning(
+          `On-chain ✓ but database update failed: ${dbErr.message}. ` +
+          "Check your Supabase RLS policy — the anon key needs UPDATE permission on reports_index.",
+          { id: toastId, duration: 8000 }
+        );
+      } else {
+        // Optimistically update local state so the card reflects immediately
+        setReports((prev) =>
+          prev.map((r) => r.report_id === reportId ? { ...r, status: newStatus, updated_at: now } : r)
+        );
+        toast.success(
+          action === "approve" ? "Report marked as Resolved." : "Report marked as Rejected.",
+          { id: toastId }
+        );
+      }
+    } catch (err: any) {
       console.error("Action failed:", err);
-      alert("Blockchain transaction failed. Check your wallet connection.");
+      toast.error(`Transaction failed: ${err?.message ?? "Check wallet connection."}`, { id: toastId });
+    } finally {
+      setAction(reportId, actionKey, false);
     }
   };
 
@@ -610,8 +745,10 @@ export default function DashboardPage() {
                 key={report.report_id}
                 report={report}
                 isUnlocked={!!unlockedContent[report.report_id]}
+                isDecrypting={isActionLoading(report.report_id, "decrypt")}
                 onView={() => handleViewReport(report)}
                 onAction={handleAction}
+                actionLoading={actionLoading}
               />
             ))}
           </div>
@@ -622,9 +759,11 @@ export default function DashboardPage() {
         <ReviewModal
           report={selectedReport}
           decryptedData={unlockedContent[selectedReport.report_id]}
+          comments={comments[selectedReport.report_id] ?? []}
           onClose={() => setSelectedReport(null)}
           onAction={handleAction}
           onUnlock={() => handleUnlockReport(selectedReport)}
+          actionLoading={actionLoading}
         />
       )}
     </div>

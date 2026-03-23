@@ -1,9 +1,11 @@
-import { Eye, CheckCircle, XCircle, Lock, Unlock } from "lucide-react";
+import { Eye, CheckCircle, XCircle, Lock, Unlock, Loader2 } from "lucide-react";
 import { REPORT_STATUS } from "../lib/crypto";
 
 interface ReportCardProps {
   report: any;
   isUnlocked: boolean;
+  isDecrypting?: boolean;
+  actionLoading?: Record<string, boolean>;
   onView: () => void;
   onAction: (id: string, action: "approve" | "reject") => void;
 }
@@ -17,8 +19,11 @@ const severityColors: Record<number, string> = {
 
 const categoryNames = ["Corruption", "Harassment", "Safety Violation", "Fraud", "Other"];
 
-export function ReportCard({ report, isUnlocked, onView, onAction }: ReportCardProps) {
+export function ReportCard({ report, isUnlocked, isDecrypting, actionLoading, onView, onAction }: ReportCardProps) {
   const status = REPORT_STATUS[report.status as number];
+  const id = report.report_id;
+  const isApproving = !!actionLoading?.[`${id}-approve`];
+  const isRejecting = !!actionLoading?.[`${id}-reject`];
 
   return (
     <div
@@ -68,27 +73,46 @@ export function ReportCard({ report, isUnlocked, onView, onAction }: ReportCardP
           <div className="flex items-center space-x-3">
             <button
               onClick={onView}
-              className="flex items-center space-x-1 text-neon-blue hover:text-neon-blue/80 transition-colors"
+              disabled={isDecrypting}
+              className="flex items-center space-x-1 text-neon-blue hover:text-neon-blue/80 transition-colors disabled:opacity-60"
             >
-              <Eye className="h-4 w-4" />
-              <span>{isUnlocked ? "View Content" : "Decrypt & View"}</span>
+              {isDecrypting
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Eye className="h-4 w-4" />}
+              <span>{isDecrypting ? "Decrypting…" : isUnlocked ? "View Content" : "Decrypt & View"}</span>
             </button>
 
-            <button
-              onClick={() => onAction(report.report_id, "approve")}
-              className="flex items-center space-x-1 text-neon-green hover:text-neon-green/80 transition-colors"
-            >
-              <CheckCircle className="h-4 w-4" />
-              <span>Resolve</span>
-            </button>
+            {report.status === 3 ? (
+              <span className="flex items-center space-x-1 px-3 py-1 rounded border border-neon-green/40 bg-neon-green/10 text-neon-green font-mono text-xs cursor-default">
+                <CheckCircle className="h-3.5 w-3.5" />
+                <span>Resolved</span>
+              </span>
+            ) : report.status === 4 ? (
+              <span className="flex items-center space-x-1 px-3 py-1 rounded border border-neon-red/40 bg-neon-red/10 text-neon-red font-mono text-xs cursor-default">
+                <XCircle className="h-3.5 w-3.5" />
+                <span>Rejected</span>
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={() => onAction(id, "approve")}
+                  disabled={isApproving || isRejecting}
+                  className="flex items-center space-x-1 text-neon-green hover:text-neon-green/80 transition-colors disabled:opacity-60"
+                >
+                  {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                  <span>{isApproving ? "Resolving…" : "Resolve"}</span>
+                </button>
 
-            <button
-              onClick={() => onAction(report.report_id, "reject")}
-              className="flex items-center space-x-1 text-neon-red hover:text-neon-red/80 transition-colors"
-            >
-              <XCircle className="h-4 w-4" />
-              <span>Reject</span>
-            </button>
+                <button
+                  onClick={() => onAction(id, "reject")}
+                  disabled={isRejecting || isApproving}
+                  className="flex items-center space-x-1 text-neon-red hover:text-neon-red/80 transition-colors disabled:opacity-60"
+                >
+                  {isRejecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                  <span>{isRejecting ? "Rejecting…" : "Reject"}</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

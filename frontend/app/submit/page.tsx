@@ -14,6 +14,7 @@ import {
   encryptWithAES,
   getBlockchainReceipt,
   parseReportIdFromReceipt,
+  parseRecordCiphertexts,
 } from '@/app/lib/crypto'
 import Link from 'next/link'
 import { supabase } from '../lib/db'
@@ -28,6 +29,7 @@ export default function SubmitPage() {
     files: [] as File[],
   })
   const [submitting, setSubmitting] = useState(false)
+  const [statusMsg, setStatusMsg]   = useState<string>('')
   const [error, setError]   = useState<string | null>(null)
   const [result, setResult] = useState<{
     reportId: string;
@@ -44,10 +46,10 @@ export default function SubmitPage() {
 
   const handleSubmit = async () => {
     setError(null)
+    setStatusMsg('')
     setSubmitting(true)
 
     try {
-      // Validate that admin + reviewer addresses are configured
       const adminAddr    = process.env.NEXT_PUBLIC_ADMIN_ADDR
       const reviewerAddr = process.env.NEXT_PUBLIC_REVIEWER_ADDR
       if (!adminAddr || !reviewerAddr) {
@@ -57,11 +59,11 @@ export default function SubmitPage() {
         )
       }
 
-      // 1. Generate a 31-byte AES case key (the "master key" for this report)
+      setStatusMsg('Generating encryption keys…')
       const caseKey      = generate31ByteKey()
       const caseKeyBytes = keyToUint8Array(caseKey)
 
-      // 2. Encrypt report JSON and upload to IPFS
+      setStatusMsg('Encrypting report…')
       const reportPayload = JSON.stringify({
         title:       report.title,
         description: report.description,
@@ -69,57 +71,59 @@ export default function SubmitPage() {
         severity:    report.severity,
       })
       const reportBlob = await encryptWithAES(reportPayload, caseKeyBytes)
+
+      setStatusMsg('Uploading encrypted report to IPFS…')
       const reportCID  = await uploadToIPFS(reportBlob)
 
-      // 3. Encrypt the case key for BOTH admin and reviewer with ONE ephemeral key
+      setStatusMsg('Deriving dual-recipient ECDH keys…')
       const { adminEncryptedKey, reviewerEncryptedKey, ephemeralField } =
         await encryptCaseKeyForBothRecipients(caseKey, adminAddr, reviewerAddr)
 
-      // 4. Generate anonymous reporter seed
       const seed = generateSeed()
 
-      // 5. Submit to Aleo blockchain
-      const { finalTxId } = await submitReport({
-        seed,
-        category:       report.category,
-        severity:       report.severity,
-        contentHash:    await hashContent(caseKey),
-        evidenceCID:    reportCID,
-        adminKeyField:    adminEncryptedKey,
-        reviewerKeyField: reviewerEncryptedKey,
-        ephemeralKey:     ephemeralField,
-      })
+      const { finalTxId } = await submitReport(
+        {
+          seed,
+          category:         report.category,
+          severity:         report.severity,
+          contentHash:      await hashContent(caseKey),
+          evidenceCID:      reportCID,
+          adminAddress:     adminAddr,
+          adminKeyField:    adminEncryptedKey,
+          reviewerAddress:  reviewerAddr,
+          reviewerKeyField: reviewerEncryptedKey,
+          ephemeralKey:     ephemeralField,
+        },
+        (msg) => setStatusMsg(msg),
+      )
 
-      // 6. Parse the on-chain report_id from the transaction receipt
-      const receipt    = await getBlockchainReceipt(finalTxId)
-      const onChainId  = parseReportIdFromReceipt(receipt)
-
-      // 7. Index the report in Supabase (stores CID so reviewers can fetch from IPFS)
+      setStatusMsg('Fetching on-chain report ID and record ciphertexts…')
+      const receipt       = await getBlockchainReceipt(finalTxId)
+      const onChainId     = parseReportIdFromReceipt(receipt)
+      const ciphertexts   = parseRecordCiphertexts(receipt)
+      setStatusMsg('Indexing report in database…')
       const { error: dbError } = await supabase
         .from('reports_index')
         .insert([{
-          report_id:    onChainId,
-          tx_id:        finalTxId,
-          category:     report.category,
-          severity:     report.severity,
-          evidence_cid: reportCID,   // original CID needed for IPFS retrieval
+          report_id:                  onChainId,
+          tx_id:                      finalTxId,
+          category:                   report.category,
+          severity:                   report.severity,
+          evidence_cid:               reportCID,
+          admin_record_ciphertext:    ciphertexts.adminRecord,
+          reviewer_record_ciphertext: ciphertexts.reviewerRecord,
         }])
 
-      if (dbError) {
-        console.error('Supabase insert error:', dbError)
-      }
+      if (dbError) console.error('Supabase insert error:', dbError)
 
-      setResult({
-        reportId: onChainId || 'Pending Confirmation',
-        seed,
-        txId: finalTxId,
-      })
+      setResult({ reportId: onChainId || 'Pending Confirmation', seed, txId: finalTxId })
       setStep(3)
     } catch (err: any) {
       console.error('Submission error:', err)
       setError(err?.message ?? 'Submission failed. Please try again.')
     } finally {
       setSubmitting(false)
+      setStatusMsg('')
     }
   }
 
@@ -260,6 +264,15 @@ export default function SubmitPage() {
                 </p>
               </div>
 
+              {submitting && statusMsg && (
+                <div className="mt-4 p-3 bg-neon-blue/10 border border-neon-blue/30 rounded">
+                  <p className="text-sm text-neon-blue font-mono flex items-center">
+                    <span className="mr-2 h-2 w-2 rounded-full bg-neon-blue animate-pulse inline-block flex-shrink-0" />
+                    {statusMsg}
+                  </p>
+                </div>
+              )}
+
               {error && (
                 <div className="mt-4 p-3 bg-neon-red/10 border border-neon-red/30 rounded">
                   <p className="text-sm text-neon-red font-mono flex items-center">
@@ -282,7 +295,7 @@ export default function SubmitPage() {
                 disabled={submitting}
                 className="flex-1 bg-neon-green text-cyber-black py-3 rounded-lg font-bold hover:bg-neon-green/90 transition disabled:opacity-50"
               >
-                {submitting ? 'Submitting...' : 'Submit Anonymous Report'}
+                {submitting ? (statusMsg || 'Submitting…') : 'Submit Anonymous Report'}
               </button>
             </div>
           </div>
