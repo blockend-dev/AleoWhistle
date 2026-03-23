@@ -20,6 +20,74 @@ const ADMIN_ADDR   = process.env.NEXT_PUBLIC_ADMIN_ADDR!;
 const DEMO_KEY     = process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY ?? "";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Demo banner — shown at top of page whenever the visitor is not admin
+// ─────────────────────────────────────────────────────────────────────────────
+function DemoBanner({ onDismiss }: { onDismiss: () => void }) {
+  const { copied, copy } = useCopy();
+  const [showKey, setShowKey] = useState(false);
+
+  return (
+    <div className="w-full mt-16 border-b border-yellow-500/50 bg-yellow-500/10 backdrop-blur-sm font-mono">
+      <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+
+          {/* Left: label + description */}
+          <div className="flex items-start md:items-center space-x-3 flex-shrink-0">
+            <span className="relative flex h-2.5 w-2.5 mt-1 md:mt-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400" />
+            </span>
+            <div>
+              <p className="text-yellow-400 font-bold text-sm tracking-widest">HACKATHON DEMO</p>
+              <p className="text-yellow-300/60 text-[11px] leading-tight">
+                Import this private key to test admin features
+              </p>
+            </div>
+          </div>
+
+          {/* Centre: key display */}
+          <div className="flex-1 flex items-center space-x-2 bg-black/30 rounded-lg px-3 py-2 border border-yellow-500/20 min-w-0">
+            <Key className="h-3.5 w-3.5 text-yellow-400 flex-shrink-0" />
+            <code className="flex-1 text-[11px] text-yellow-300 truncate">
+              {showKey ? DEMO_KEY : `${DEMO_KEY.slice(0, 18)}${"•".repeat(28)}`}
+            </code>
+            <button
+              onClick={() => setShowKey(!showKey)}
+              className="p-1 rounded text-yellow-400 hover:bg-yellow-500/20 transition flex-shrink-0"
+              title={showKey ? "Hide key" : "Reveal key"}
+            >
+              {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              onClick={() => copy(DEMO_KEY, "banner")}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-yellow-400 text-black text-[11px] font-bold hover:bg-yellow-300 transition flex-shrink-0"
+            >
+              {copied === "banner"
+                ? <><CheckCircle className="h-3 w-3 mr-1" />Copied!</>
+                : <><Copy className="h-3 w-3 mr-1" />Copy Key</>}
+            </button>
+          </div>
+
+          {/* Right: instructions + dismiss */}
+          <div className="flex items-center space-x-4 flex-shrink-0">
+            <p className="text-yellow-300/50 text-[11px] hidden lg:block">
+              Wallet → Import Account → paste key → connect
+            </p>
+            <button
+              onClick={onDismiss}
+              className="text-yellow-500/50 hover:text-yellow-400 text-xs transition px-2 py-1 rounded hover:bg-yellow-500/10"
+            >
+              Dismiss
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helper: copy with flash feedback
 // ─────────────────────────────────────────────────────────────────────────────
 function useCopy() {
@@ -256,6 +324,7 @@ export default function DashboardPage() {
   const [unlockedContent, setUnlockedContent] = useState<Record<string, any>>({});
   const [adminPrivKey, setAdminPrivKey] = useState(DEMO_KEY);
   const [showKeyPanel, setShowKeyPanel] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   const { updateStatus } = useWhistleblowing();
   const { fetchFromIPFS } = useIPFS();
@@ -366,57 +435,62 @@ export default function DashboardPage() {
     }
   };
 
+  const showBanner = !isAdmin && !bannerDismissed;
+
   // ─────────────────────────────────────────────────────────────────────────
   // VIEW: Not connected
   // ─────────────────────────────────────────────────────────────────────────
   if (!connected) {
     return (
-      <div className="min-h-screen pt-24 px-4 cyber-grid">
-        <div className="max-w-5xl mx-auto">
-          <h1 className="text-3xl font-bold glitch-text flex items-center mb-2">
-            <Shield className="h-8 w-8 mr-3 text-neon-green" />
-            WHISTLECRYPT PORTAL
-          </h1>
-          <p className="text-gray-500 font-mono text-sm mb-10">
-            Connect an authorized wallet for admin access, or check your report status below.
-          </p>
+      <div className="min-h-screen cyber-grid">
+        {showBanner && <DemoBanner onDismiss={() => setBannerDismissed(true)} />}
+        <div className="pt-24 px-4">
+          <div className="max-w-5xl mx-auto">
+            <h1 className="text-3xl font-bold glitch-text flex items-center mb-2">
+              <Shield className="h-8 w-8 mr-3 text-neon-green" />
+              WHISTLECRYPT PORTAL
+            </h1>
+            <p className="text-gray-500 font-mono text-sm mb-10">
+              Connect an authorized wallet for admin access, or check your report status below.
+            </p>
 
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* Admin access card */}
-            <div className="terminal-window border-neon-green/40 flex flex-col">
-              <div className="flex items-center space-x-2 mb-4">
-                <Key className="h-5 w-5 text-neon-green" />
-                <h2 className="font-bold text-neon-green text-lg">Admin / Reviewer Access</h2>
-              </div>
-              <p className="text-gray-500 text-sm mb-6">
-                Connect the authorized admin wallet to review reports, decrypt evidence, and manage case status.
-              </p>
-
-              {/* Hackathon judge credential preview */}
-              <div className="bg-black/30 rounded-lg border border-yellow-500/30 p-4 mb-6">
-                <p className="text-yellow-400 text-xs font-bold mb-3">⚡ HACKATHON JUDGES — IMPORT THIS KEY</p>
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-gray-600 text-[10px] mb-1">ADMIN ADDRESS</p>
-                    <code className="text-yellow-300 text-[10px] break-all">{ADMIN_ADDR}</code>
-                  </div>
-                  <div>
-                    <p className="text-gray-600 text-[10px] mb-1">PRIVATE KEY</p>
-                    <code className="text-yellow-300 text-[10px]">{DEMO_KEY.slice(0, 20)}••••••••••••••••••</code>
-                  </div>
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Admin access card */}
+              <div className="terminal-window border-neon-green/40 flex flex-col">
+                <div className="flex items-center space-x-2 mb-4">
+                  <Key className="h-5 w-5 text-neon-green" />
+                  <h2 className="font-bold text-neon-green text-lg">Admin / Reviewer Access</h2>
                 </div>
-                <p className="text-gray-600 text-[10px] mt-3">
-                  Import into Shield / Puzzle / Leo wallet → connect below
+                <p className="text-gray-500 text-sm mb-6">
+                  Connect the authorized admin wallet to review, decrypt, and manage reports.
                 </p>
+
+                {/* Hackathon judge credential preview */}
+                <div className="bg-black/30 rounded-lg border border-yellow-500/30 p-4 mb-6">
+                  <p className="text-yellow-400 text-xs font-bold mb-3">⚡ HACKATHON JUDGES — IMPORT THIS KEY</p>
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-gray-600 text-[10px] mb-1">ADMIN ADDRESS</p>
+                      <code className="text-yellow-300 text-[10px] break-all">{ADMIN_ADDR}</code>
+                    </div>
+                    <div>
+                      <p className="text-gray-600 text-[10px] mb-1">PRIVATE KEY (see banner above for full key + copy)</p>
+                      <code className="text-yellow-300 text-[10px]">{DEMO_KEY.slice(0, 22)}••••••••••••••••</code>
+                    </div>
+                  </div>
+                  <p className="text-gray-600 text-[10px] mt-3">
+                    Import into Shield / Puzzle / Leo wallet → connect below
+                  </p>
+                </div>
+
+                <div className="mt-auto">
+                  <WalletMultiButton />
+                </div>
               </div>
 
-              <div className="mt-auto">
-                <WalletMultiButton />
-              </div>
+              {/* Reporter status checker */}
+              <ReporterStatusChecker />
             </div>
-
-            {/* Reporter status checker */}
-            <ReporterStatusChecker />
           </div>
         </div>
       </div>
@@ -428,16 +502,19 @@ export default function DashboardPage() {
   // ─────────────────────────────────────────────────────────────────────────
   if (!isAdmin) {
     return (
-      <div className="min-h-screen pt-24 px-4 cyber-grid flex items-center justify-center">
-        <div className="max-w-lg w-full space-y-6">
-          <ReporterStatusChecker />
-          <div className="terminal-window border-neon-green/10 text-center py-8">
-            <Shield className="h-8 w-8 text-gray-700 mx-auto mb-3" />
-            <p className="text-gray-600 font-mono text-xs">
-              Connected as{" "}
-              <span className="text-gray-500">{address?.slice(0, 10)}…</span>
-              &nbsp;— this wallet does not have admin privileges.
-            </p>
+      <div className="min-h-screen cyber-grid">
+        {showBanner && <DemoBanner onDismiss={() => setBannerDismissed(true)} />}
+        <div className="pt-24 px-4 flex items-center justify-center" style={{ minHeight: "calc(100vh - 4rem)" }}>
+          <div className="max-w-lg w-full space-y-6">
+            <ReporterStatusChecker />
+            <div className="terminal-window border-neon-green/10 text-center py-8">
+              <Shield className="h-8 w-8 text-gray-700 mx-auto mb-3" />
+              <p className="text-gray-600 font-mono text-xs">
+                Connected as{" "}
+                <span className="text-gray-500">{address?.slice(0, 10)}…</span>
+                &nbsp;— this wallet does not have admin privileges.
+              </p>
+            </div>
           </div>
         </div>
       </div>
