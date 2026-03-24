@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           autoConnect={true}
           network={Network.TESTNET}
           decryptPermission={DecryptPermission.UponRequest}
-          programs={["whistleblowing_version2.aleo"]}
+          programs={["whistleblowing_version3.aleo","credits.aleo"]}
           onError={(error) => console.error(error.message)}
         >
           <WalletModalProvider>

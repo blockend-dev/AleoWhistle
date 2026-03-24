@@ -27,7 +27,16 @@ export function generateSeed(): string {
 
 /**
  * Encrypts a case key for TWO recipients (admin + reviewer) using a SINGLE
- * ephemeral key pair.
+ * ephemeral key pair. This ensures the on-chain `ephemeral_key` field can be
+ * used by EITHER party to reconstruct the ECDH shared secret and recover their
+ * respective encrypted key.
+ *
+ * Scheme:
+ *   sharedSecret_admin    = ephemeral.viewKey × admin.pubKey
+ *   sharedSecret_reviewer = ephemeral.viewKey × reviewer.pubKey
+ *   adminEncryptedKey     = (caseKey XOR sharedSecret_admin)  & mask250
+ *   reviewerEncryptedKey  = (caseKey XOR sharedSecret_reviewer) & mask250
+ *   ephemeralField        = x-coordinate of ephemeral public-key group point
  */
 export async function encryptCaseKeyForBothRecipients(
   caseKeyField: string,
@@ -172,6 +181,10 @@ export async function decryptWithAES(encryptedBlob: Blob, keyString: string): Pr
 
 /**
  * Recovers the original case key via ECDH XOR decryption.
+ *
+ *   recoveredKey = encryptedKey XOR (ephemeral.pubKey × reviewer.viewKey) & mask250
+ *
+ * The mask must match what was used during encryption so the XOR cancels correctly.
  */
 export function recoverCaseKey(encryptedKeyStr: string, sharedSecretGroupStr: string): string {
   const mask         = (BigInt(1) << BigInt(250)) - BigInt(1);
@@ -222,6 +235,11 @@ export const parseReportIdFromReceipt = (receipt: any): string => {
 
 /**
  * Extract the three record ciphertexts emitted by submit_report v2.
+ * Output order:  [0] ReporterReceipt  [1] EncryptedReport(admin)  [2] EncryptedReport(reviewer)
+ * Records appear before the Future in the outputs array.
+ *
+ * The Provable API returns the transaction directly (no `transaction` wrapper):
+ *   receipt.execution.transitions[i].outputs
  */
 export const parseRecordCiphertexts = (
   receipt: any

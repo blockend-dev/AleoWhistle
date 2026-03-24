@@ -101,6 +101,7 @@ export default function SubmitPage() {
       const receipt       = await getBlockchainReceipt(finalTxId)
       const onChainId     = parseReportIdFromReceipt(receipt)
       const ciphertexts   = parseRecordCiphertexts(receipt)
+      console.log(ciphertexts)
       setStatusMsg('Indexing report in database…')
       const { error: dbError } = await supabase
         .from('reports_index')
