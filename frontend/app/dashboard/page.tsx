@@ -15,11 +15,14 @@ import { decryptWithAES, parseAleoStruct, recoverCaseKey, REPORT_STATUS } from "
 import { useIPFS } from "@/app/hooks/useIPFS";
 import { supabase } from "../lib/db";
 
-const PROGRAM    = process.env.NEXT_PUBLIC_PROGRAM ?? "whistleblowing_version2.aleo";
-const ADMIN_ADDR = process.env.NEXT_PUBLIC_ADMIN_ADDR!;
+const PROGRAM      = process.env.NEXT_PUBLIC_PROGRAM ?? "whistleblowing_version3.aleo";
+const ADMIN_ADDR   = process.env.NEXT_PUBLIC_ADMIN_ADDR!;
+const PROVABLE_API = "https://api.provable.com/v2/testnet";
 const DEMO_KEY     = process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY ?? "";
 
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Demo banner — shown at top of page whenever the visitor is not admin
+// ─────────────────────────────────────────────────────────────────────────────
 function DemoBanner({ onDismiss }: { onDismiss: () => void }) {
   const { copied, copy } = useCopy();
   const [showKey, setShowKey] = useState(false);
@@ -213,25 +216,31 @@ function JudgePanel({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reporter status checker 
+// Reporter status checker (shared between non-admin and unauthenticated views)
 // ─────────────────────────────────────────────────────────────────────────────
 function ReporterStatusChecker() {
-  const [reportId, setReportId] = useState("");
-  const [result, setResult]     = useState<any>(null);
-  const [comments, setComments] = useState<any[]>([]);
-  const [loading, setLoading]   = useState(false);
+  const [reportId, setReportId]     = useState("");
+  const [result, setResult]         = useState<any>(null);
+  const [comments, setComments]     = useState<any[]>([]);
+  const [bountyInfo, setBountyInfo] = useState<{ amount: number; claimed: boolean } | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [claiming, setClaiming]     = useState(false);
+  const [claimStatus, setClaimStatus] = useState("");
+
+  const { address, connected, requestRecords, decrypt } = useWallet();
+  const { claimBounty } = useWhistleblowing();
 
   const checkStatus = async () => {
     if (!reportId.trim()) return;
     setLoading(true);
     setResult(null);
     setComments([]);
+    setBountyInfo(null);
     try {
-      // Fetch status + comments in parallel
-      const [{ data, error }, { data: commentData }] = await Promise.all([
+      const [{ data, error }, { data: commentData }, amountRes, claimedRes] = await Promise.all([
         supabase
           .from("reports_index")
-          .select("report_id, status, category, severity, created_at, updated_at")
+          .select("report_id, tx_id, status, category, severity, created_at, updated_at")
           .eq("report_id", reportId.trim())
           .single(),
         supabase
@@ -239,6 +248,8 @@ function ReporterStatusChecker() {
           .select("id, comment, created_at")
           .eq("report_id", reportId.trim())
           .order("created_at", { ascending: true }),
+        fetch(`${PROVABLE_API}/program/${PROGRAM}/mapping/bounties/${reportId.trim()}field`),
+        fetch(`${PROVABLE_API}/program/${PROGRAM}/mapping/claimed/${reportId.trim()}field`),
       ]);
 
       if (error || !data) {
@@ -246,11 +257,62 @@ function ReporterStatusChecker() {
       } else {
         setResult(data);
         setComments(commentData ?? []);
+
+        const amountRaw  = amountRes.ok  ? await amountRes.json()  : null;
+        const claimedRaw = claimedRes.ok ? await claimedRes.json() : null;
+        setBountyInfo({
+          amount:  amountRaw ? Number(String(amountRaw).replace(/u64$/, "")) : 0,
+          claimed: claimedRaw === true || claimedRaw === "true",
+        });
       }
     } catch {
       setResult({ error: "Could not query status. Try again shortly." });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClaim = async () => {
+    if (!bountyInfo || bountyInfo.amount <= 0 || bountyInfo.claimed) return;
+    if (!connected || !address || !requestRecords) return;
+
+    setClaiming(true);
+    setClaimStatus("Fetching your ReporterReceipt from wallet…");
+    try {
+      const records: any[] = await requestRecords(PROGRAM, false);
+      const receipt = records.find((r: any) =>
+        r.recordName === "ReporterReceipt" &&
+        !r.spent &&
+        r.transactionId?.trim() === result.tx_id?.trim()
+      );
+
+      if (!receipt) {
+        throw new Error(
+          "ReporterReceipt not found in your wallet. " +
+          "Ensure this wallet was used to submit the report and the record is unspent."
+        );
+      }
+
+      // Decrypt the ciphertext so the wallet can use it as a private record input
+      setClaimStatus("Decrypting receipt record…");
+      const decryptedReceipt = await decrypt!(receipt.recordCiphertext);
+
+      setClaimStatus("Broadcasting claim transaction…");
+      await claimBounty(
+        decryptedReceipt,
+        address,
+        bountyInfo.amount,
+        (msg) => setClaimStatus(msg),
+      );
+
+      setBountyInfo({ ...bountyInfo, claimed: true, amount: 0 });
+      setClaimStatus("");
+      toast.success(`${(bountyInfo.amount / 1_000_000).toFixed(2)} ALEO claimed successfully!`);
+    } catch (err: any) {
+      toast.error(`Claim failed: ${err?.message ?? "Unknown error."}`);
+      setClaimStatus("");
+    } finally {
+      setClaiming(false);
     }
   };
 
@@ -331,6 +393,66 @@ function ReporterStatusChecker() {
                   </div>
                 </div>
               )}
+
+              {/* ── Bounty section ── */}
+              {bountyInfo && (bountyInfo.amount > 0 || bountyInfo.claimed) && (
+                <div className="border-t border-yellow-500/20 px-4 pb-4 pt-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-yellow-400 font-mono font-bold uppercase tracking-widest">
+                      Whistleblower Bounty
+                    </p>
+                    {bountyInfo.claimed ? (
+                      <span className="inline-flex items-center space-x-1 text-[10px] text-neon-green font-mono bg-neon-green/10 border border-neon-green/30 px-2 py-0.5 rounded">
+                        <CheckCircle className="h-3 w-3" />
+                        <span>Claimed</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-yellow-300 font-mono bg-yellow-500/10 border border-yellow-500/30 px-2 py-0.5 rounded">
+                        {(bountyInfo.amount / 1_000_000).toFixed(2)} ALEO available
+                      </span>
+                    )}
+                  </div>
+
+                  {!bountyInfo.claimed && result.status === 3 && (
+                    <>
+                      {!connected ? (
+                        <p className="text-xs text-gray-500 font-mono mb-2">
+                          Connect the wallet used to submit this report to claim your bounty.
+                        </p>
+                      ) : null}
+
+                      {claimStatus && (
+                        <p className="text-xs text-yellow-400 font-mono flex items-center mb-2">
+                          <span className="mr-2 h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse inline-block" />
+                          {claimStatus}
+                        </p>
+                      )}
+
+                      <button
+                        onClick={handleClaim}
+                        disabled={claiming || !connected}
+                        className="w-full inline-flex items-center justify-center space-x-2 py-2 bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 rounded-lg font-mono text-sm hover:bg-yellow-500/30 transition disabled:opacity-50"
+                      >
+                        {claiming
+                          ? <><span className="h-3 w-3 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin" /><span>Claiming…</span></>
+                          : <span>Claim {(bountyInfo.amount / 1_000_000).toFixed(2)} ALEO Bounty</span>
+                        }
+                      </button>
+                      {!connected && (
+                        <p className="text-[10px] text-gray-600 font-mono mt-1 text-center">
+                          Wallet required to claim
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  {!bountyInfo.claimed && result.status !== 3 && (
+                    <p className="text-xs text-gray-600 font-mono">
+                      Bounty unlocks once your report is resolved.
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -366,8 +488,10 @@ export default function DashboardPage() {
   const [actionLoading, setActionLoading]   = useState<Record<string, boolean>>({});
   // comments keyed by report_id
   const [comments, setComments]             = useState<Record<string, any[]>>({});
+  // bounty info keyed by report_id
+  const [bountyInfoMap, setBountyInfoMap]   = useState<Record<string, { amount: number; claimed: boolean }>>({});
 
-  const { updateStatus } = useWhistleblowing();
+  const { updateStatus, fundBounty } = useWhistleblowing();
   const { fetchFromIPFS } = useIPFS();
 
   const setAction = (reportId: string, action: string, on: boolean) =>
@@ -419,8 +543,34 @@ export default function DashboardPage() {
     setComments((prev) => ({ ...prev, [reportId]: data ?? [] }));
   };
 
-  // ── Decrypt a report using the admin's private key ───────────────────────
+  // ── Fetch on-chain bounty info for a report ──────────────────────────────
+  const fetchBountyInfo = async (reportId: string) => {
+    try {
+      const [amountRes, claimedRes] = await Promise.all([
+        fetch(`${PROVABLE_API}/program/${PROGRAM}/mapping/bounties/${reportId}field`),
+        fetch(`${PROVABLE_API}/program/${PROGRAM}/mapping/claimed/${reportId}field`),
+      ]);
+      const amountRaw  = amountRes.ok  ? await amountRes.json()  : null;
+      const claimedRaw = claimedRes.ok ? await claimedRes.json() : null;
+      const amount  = amountRaw  ? Number(String(amountRaw).replace(/u64$/, "")) : 0;
+      const claimed = claimedRaw === true || claimedRaw === "true";
+      setBountyInfoMap((prev) => ({ ...prev, [reportId]: { amount, claimed } }));
+    } catch {
+      // Silently ignore — bounty info is supplementary
+    }
+  };
 
+  // ── Decrypt a report using the admin's private key ───────────────────────
+  //
+  //  Decrypt flow:
+  //    1. requestRecords(PROGRAM) → find EncryptedReport where
+  //       transactionId === report.tx_id && !spent
+  //    2. viewKey.decrypt(record.ciphertext) → plaintext Leo struct string
+  //    3. parseAleoStruct → encrypted_key + ephemeral_key
+  //    4. ECDH: ephemeralPoint × adminViewKeyScalar → sharedSecret
+  //    5. recoverCaseKey (XOR + 250-bit mask) → AES key
+  //    6. fetchFromIPFS(cid) → AES-GCM decrypt → JSON report payload
+  //
   const handleUnlockReport = async (report: any) => {
     if (!adminPrivKey) {
       toast.warning("Admin private key not loaded. Open the Judge Panel and enter the key.");
@@ -440,12 +590,15 @@ export default function DashboardPage() {
 
       toast.loading("Fetching records from wallet…", { id: toastId });
       const records: any[] = await requestRecords(PROGRAM, false);
+      console.log(records);
       // Match by transactionId + not spent + correct record type
       const match = records.find((r: any) =>
         r.recordName === "EncryptedReport" &&
         r.transactionId.trim() == report.tx_id &&
         !r.spent
       );
+      console.log(report)
+      console.log(match);
 
       if (!match) {
         throw new Error(
@@ -457,7 +610,9 @@ export default function DashboardPage() {
       // Decrypt the raw ciphertext with the view key to get plaintext struct
       toast.loading("Decrypting record with view key…", { id: toastId });
       const plaintextStr = await decrypt(match.recordCiphertext);
+      console.log(plaintextStr);
       const recordData   = parseAleoStruct(plaintextStr);
+console.log(recordData);
       const encrypted_key = recordData.encrypted_key ?? "";
       const ephemeral_key = recordData.ephemeral_key ?? "";
 
@@ -500,11 +655,32 @@ export default function DashboardPage() {
       if (!ok) return; // don't open modal if decryption failed
     }
     fetchComments(report.report_id);
+    fetchBountyInfo(report.report_id);
     setSelectedReport(report);
   };
 
-  // ── Status change (resolve / reject) + comments ──────────────────────────
-  const handleAction = async (reportId: string, action: string, comment?: string) => {
+  // ── Status change (resolve / reject) + comments + bounty ─────────────────
+  const handleAction = async (reportId: string, action: string, comment?: any) => {
+    // ── Fund bounty ──────────────────────────────────────────────────────
+    if (action === "fund_bounty") {
+      const aleoAmount      = Number(comment);
+      const microcredits    = Math.round(aleoAmount * 1_000_000);
+      if (!microcredits || microcredits <= 0) return;
+      setAction(reportId, "fund_bounty", true);
+      const toastId = toast.loading(`Funding ${aleoAmount} ALEO bounty on-chain…`);
+      try {
+        await fundBounty(reportId, microcredits, (msg) => toast.loading(msg, { id: toastId }));
+        toast.success(`${aleoAmount} ALEO bounty funded. Reporter can claim after resolution.`, { id: toastId });
+        await fetchBountyInfo(reportId);
+      } catch (err: any) {
+        toast.error(`Bounty funding failed: ${err?.message ?? "Check wallet balance."}`, { id: toastId });
+        setSelectedReport(null);
+      } finally {
+        setAction(reportId, "fund_bounty", false);
+      }
+      return;
+    }
+
     if (action === "comment") {
       if (!comment?.trim()) return;
       setAction(reportId, "comment", true);
@@ -635,7 +811,9 @@ export default function DashboardPage() {
     );
   }
 
-
+  // ─────────────────────────────────────────────────────────────────────────
+  // VIEW: Connected but NOT admin → reporter-only status checker
+  // ─────────────────────────────────────────────────────────────────────────
   if (!isAdmin) {
     return (
       <div className="min-h-screen cyber-grid">
@@ -761,6 +939,7 @@ export default function DashboardPage() {
           report={selectedReport}
           decryptedData={unlockedContent[selectedReport.report_id]}
           comments={comments[selectedReport.report_id] ?? []}
+          bountyInfo={bountyInfoMap[selectedReport.report_id]}
           onClose={() => setSelectedReport(null)}
           onAction={handleAction}
           onUnlock={() => handleUnlockReport(selectedReport)}

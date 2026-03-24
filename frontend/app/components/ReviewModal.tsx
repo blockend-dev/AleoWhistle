@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Download, Lock, ShieldCheck, Loader2, MessageSquare, CheckCircle, XCircle } from "lucide-react";
+import { X, Download, Lock, ShieldCheck, Loader2, MessageSquare, CheckCircle, XCircle, Coins } from "lucide-react";
 import { REPORT_CATEGORIES, REPORT_SEVERITY } from "../lib/crypto";
 
 interface ReviewModalProps {
@@ -7,6 +7,7 @@ interface ReviewModalProps {
   decryptedData: any;
   comments: any[];
   actionLoading: Record<string, boolean>;
+  bountyInfo?: { amount: number; claimed: boolean };
   onClose: () => void;
   onAction: (id: string, action: string, data?: any) => Promise<void>;
   onUnlock: (report: any) => Promise<any>;
@@ -17,15 +18,24 @@ function Spinner() {
 }
 
 export function ReviewModal({
-  report, decryptedData, comments, actionLoading, onClose, onAction, onUnlock,
+  report, decryptedData, comments, actionLoading, bountyInfo, onClose, onAction, onUnlock,
 }: ReviewModalProps) {
-  const [comment, setComment]       = useState("");
+  const [comment, setComment]         = useState("");
+  const [bountyAmount, setBountyAmount] = useState("");
   const [isDecrypting, setIsDecrypting] = useState(false);
 
   const id = report.report_id;
-  const isApproving = !!actionLoading[`${id}-approve`];
-  const isRejecting = !!actionLoading[`${id}-reject`];
-  const isCommenting = !!actionLoading[`${id}-comment`];
+  const isApproving     = !!actionLoading[`${id}-approve`];
+  const isRejecting     = !!actionLoading[`${id}-reject`];
+  const isCommenting    = !!actionLoading[`${id}-comment`];
+  const isFundingBounty = !!actionLoading[`${id}-fund_bounty`];
+
+  const handleFundBounty = async () => {
+    const amt = parseFloat(bountyAmount);
+    if (!amt || amt <= 0) return;
+    await onAction(id, "fund_bounty", amt);
+    setBountyAmount("");
+  };
 
   const handleDecryptClick = async () => {
     setIsDecrypting(true);
@@ -199,6 +209,51 @@ export function ReviewModal({
               <span>{isCommenting ? "Posting…" : "Post Comment"}</span>
             </button>
           </div>
+        </div>
+        {/* ── Bounty panel (admin) ── */}
+        <div className="mt-6 pt-6 border-t border-yellow-500/20">
+          <div className="flex items-center space-x-2 mb-3">
+            <Coins className="h-4 w-4 text-yellow-400" />
+            <label className="text-sm text-yellow-400 font-mono font-bold">
+              WHISTLEBLOWER BOUNTY
+            </label>
+            {bountyInfo && bountyInfo.amount > 0 && !bountyInfo.claimed && (
+              <span className="ml-auto text-xs text-yellow-300 font-mono bg-yellow-500/10 border border-yellow-500/30 px-2 py-0.5 rounded">
+                {(bountyInfo.amount / 1_000_000).toFixed(2)} ALEO locked
+              </span>
+            )}
+            {bountyInfo?.claimed && (
+              <span className="ml-auto inline-flex items-center space-x-1 text-xs text-neon-green font-mono bg-neon-green/10 border border-neon-green/30 px-2 py-0.5 rounded">
+                <CheckCircle className="h-3 w-3" />
+                <span>Bounty Claimed</span>
+              </span>
+            )}
+          </div>
+
+          {!bountyInfo?.claimed && (
+            <div className="flex space-x-2">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="Amount in ALEO"
+                value={bountyAmount}
+                onChange={(e) => setBountyAmount(e.target.value)}
+                className="flex-1 bg-cyber-black border border-yellow-500/30 rounded-lg px-3 py-2 font-mono text-sm focus:border-yellow-500/60 outline-none transition"
+              />
+              <button
+                onClick={handleFundBounty}
+                disabled={isFundingBounty || !bountyAmount || parseFloat(bountyAmount) <= 0}
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 rounded-lg font-mono text-sm hover:bg-yellow-500/30 transition disabled:opacity-50"
+              >
+                {isFundingBounty ? <Spinner /> : <Coins className="h-4 w-4" />}
+                <span>{isFundingBounty ? "Funding…" : "Fund Bounty"}</span>
+              </button>
+            </div>
+          )}
+          <p className="text-[10px] text-gray-600 font-mono mt-2">
+            Credits are locked on-chain. Reporter claims anonymously after resolution using their private receipt.
+          </p>
         </div>
       </div>
     </div>

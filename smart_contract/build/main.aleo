@@ -1,4 +1,5 @@
-program whistleblowing_version2.aleo;
+import credits.aleo;
+program whistleblowing_version3.aleo;
 
 record ReporterReceipt:
     owner as address.private;
@@ -49,9 +50,17 @@ mapping stats:
     key as u8.public;
     value as u64.public;
 
+mapping bounties:
+    key as field.public;
+    value as u64.public;
+
+mapping claimed:
+    key as field.public;
+    value as boolean.public;
+
 function initialize:
     async initialize self.caller into r0;
-    output r0 as whistleblowing_version2.aleo/initialize.future;
+    output r0 as whistleblowing_version3.aleo/initialize.future;
 
 finalize initialize:
     input r0 as address.public;
@@ -84,7 +93,7 @@ function submit_report:
     output r13 as ReporterReceipt.record;
     output r14 as EncryptedReport.record;
     output r15 as EncryptedReport.record;
-    output r16 as whistleblowing_version2.aleo/submit_report.future;
+    output r16 as whistleblowing_version3.aleo/submit_report.future;
 
 finalize submit_report:
     input r0 as field.public;
@@ -115,7 +124,7 @@ function update_status:
     input r0 as field.public;
     input r1 as u8.public;
     async update_status self.caller r0 r1 into r2;
-    output r2 as whistleblowing_version2.aleo/update_status.future;
+    output r2 as whistleblowing_version3.aleo/update_status.future;
 
 finalize update_status:
     input r0 as address.public;
@@ -145,7 +154,7 @@ finalize update_status:
 function add_reviewer:
     input r0 as address.public;
     async add_reviewer self.caller r0 into r1;
-    output r1 as whistleblowing_version2.aleo/add_reviewer.future;
+    output r1 as whistleblowing_version3.aleo/add_reviewer.future;
 
 finalize add_reviewer:
     input r0 as address.public;
@@ -153,6 +162,54 @@ finalize add_reviewer:
     get.or_use admins[r0] false into r2;
     assert.eq r2 true;
     set true into reviewers[r1];
+
+function fund_bounty:
+    input r0 as credits.aleo/credits.record;
+    input r1 as field.public;
+    input r2 as u64.public;
+    call credits.aleo/transfer_private_to_public r0 whistleblowing_version3.aleo r2 into r3 r4;
+    async fund_bounty r4 self.caller r1 r2 into r5;
+    output r3 as credits.aleo/credits.record;
+    output r5 as whistleblowing_version3.aleo/fund_bounty.future;
+
+finalize fund_bounty:
+    input r0 as credits.aleo/transfer_private_to_public.future;
+    input r1 as address.public;
+    input r2 as field.public;
+    input r3 as u64.public;
+    await r0;
+    get.or_use admins[r1] false into r4;
+    assert.eq r4 true;
+    get.or_use claimed[r2] false into r5;
+    not r5 into r6;
+    assert.eq r6 true;
+    get.or_use bounties[r2] 0u64 into r7;
+    add r7 r3 into r8;
+    set r8 into bounties[r2];
+
+function claim_bounty:
+    input r0 as ReporterReceipt.record;
+    input r1 as address.public;
+    input r2 as u64.public;
+    call credits.aleo/transfer_public_to_private r1 r2 into r3 r4;
+    async claim_bounty r4 r0.report_id r2 into r5;
+    output r3 as credits.aleo/credits.record;
+    output r5 as whistleblowing_version3.aleo/claim_bounty.future;
+
+finalize claim_bounty:
+    input r0 as credits.aleo/transfer_public_to_private.future;
+    input r1 as field.public;
+    input r2 as u64.public;
+    get reports[r1] into r3;
+    assert.eq r3.status 3u8;
+    get.or_use claimed[r1] false into r4;
+    not r4 into r5;
+    assert.eq r5 true;
+    get bounties[r1] into r6;
+    assert.eq r6 r2;
+    await r0;
+    set true into claimed[r1];
+    set 0u64 into bounties[r1];
 
 constructor:
     assert.eq edition 0u16;
