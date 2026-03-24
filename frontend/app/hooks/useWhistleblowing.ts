@@ -1,12 +1,12 @@
 "use client"
 import { useWallet } from "@provablehq/aleo-wallet-adaptor-react";
 
-const PROGRAM        = process.env.NEXT_PUBLIC_PROGRAM ?? "whistleblowing_version2.aleo";
+const PROGRAM        = process.env.NEXT_PUBLIC_PROGRAM ?? "whistleblowing_version3.aleo";
 const POLL_INTERVAL  = 3000;
 const POLL_MAX       = 80; // ~4 minutes
 
 export function useWhistleblowing() {
-  const { executeTransaction, transactionStatus } = useWallet();
+  const { executeTransaction, transactionStatus, requestRecords,decrypt } = useWallet();
 
   const pollTransaction = async (
     temporaryId: string,
@@ -41,8 +41,7 @@ export function useWhistleblowing() {
     );
   };
 
-  // ── Submit report (v2: passes admin + reviewer addresses so the contract
-  //    can mint private EncryptedReport records to each recipient) ───────────
+  // submit report
   const submitReport = async (
     {
       seed, category, severity, contentHash, evidenceCID,
@@ -118,5 +117,63 @@ export function useWhistleblowing() {
     return pollTransaction(temporaryId, onStatus);
   };
 
-  return { submitReport, updateStatus };
+  //  Fund a bounty for a report 
+ 
+  const fundBounty = async (
+    reportId: string,
+    amountMicrocredits: number,
+    onStatus?: (msg: string) => void,
+  ) => {
+    onStatus?.("Fetching credits record from wallet…");
+    const creditRecords: any[] = await (requestRecords?.("credits.aleo", false) ?? []);
+    const creditRecord = creditRecords.find((r: any) => !r.spent);
+    if (!creditRecord?.recordCiphertext) {
+      throw new Error(
+        "No unspent credits record found in wallet. " +
+        "Ensure your wallet has private credits (not just a public balance)."
+      );
+    }
+
+    onStatus?.("Requesting wallet signature…");
+    const decryptedRecord = await decrypt?.((creditRecord as any).recordCiphertext);
+    const tx = await executeTransaction({
+      program: PROGRAM,
+      function: "fund_bounty",
+      inputs: [decryptedRecord, `${reportId}field`, `${amountMicrocredits}u64`],
+      fee: 100000,
+      privateFee: false,
+    });
+
+    const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
+    if (!temporaryId) throw new Error("Wallet did not return a transaction ID.");
+
+    onStatus?.("Transaction broadcast — waiting for confirmation…");
+    return pollTransaction(temporaryId, onStatus);
+  };
+
+  // Claim bounty using a ReporterReceipt record
+  const claimBounty = async (
+    receiptCiphertext: string,
+    rewardAddress: string,
+    amountMicrocredits: number,
+    onStatus?: (msg: string) => void,
+  ) => {
+    onStatus?.("Requesting wallet signature…");
+
+    const tx = await executeTransaction({
+      program: PROGRAM,
+      function: "claim_bounty",
+      inputs: [receiptCiphertext, rewardAddress, `${amountMicrocredits}u64`],
+      fee: 100000,
+      privateFee: false,
+    });
+
+    const temporaryId = typeof tx === "string" ? tx : (tx as any)?.transactionId;
+    if (!temporaryId) throw new Error("Wallet did not return a transaction ID.");
+
+    onStatus?.("Transaction broadcast — waiting for confirmation…");
+    return pollTransaction(temporaryId, onStatus);
+  };
+
+  return { submitReport, updateStatus, fundBounty, claimBounty };
 }
