@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Hackathon-Project-orange)
 
-**Deployed Contract:** [whistleblowing_version2.aleo](https://testnet.explorer.provable.com/program/whistleblowing_version2.aleo)
+**Deployed Contract:** [whistleblowing_version3.aleo](https://testnet.explorer.provable.com/program/whistleblowing_version3.aleo)
 
 ---
 
@@ -67,7 +67,7 @@ Reporter (browser)
   ├─ ECDH: derive admin + reviewer encrypted keys (single ephemeral pair)
   ├─ submitReport() → Aleo wallet signs ZK transaction
   │
-  └─ Aleo Testnet (whistleblowing_version2.aleo)
+  └─ Aleo Testnet (whistleblowing_version3.aleo)
        ├─ ZK proof: report_id = Poseidon2(seed)  [seed never on-chain]
        ├─ ReporterReceipt record → reporter
        ├─ EncryptedReport record → admin       (private, contains encrypted_key)
@@ -135,7 +135,7 @@ npm run dev
 Required environment variables:
 
 ```
-NEXT_PUBLIC_PROGRAM=whistleblowing_version2.aleo
+NEXT_PUBLIC_PROGRAM=whistleblowing_version3.aleo
 NEXT_PUBLIC_ADMIN_ADDR=aleo1...
 NEXT_PUBLIC_ADMIN_PRIVATE_KEY=APrivateKey1...   # demo only, never in production
 NEXT_PUBLIC_REVIEWER_ADDR=aleo1...

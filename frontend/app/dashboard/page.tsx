@@ -762,7 +762,7 @@ console.log(recordData);
           <div className="max-w-5xl mx-auto">
             <h1 className="text-3xl font-bold glitch-text flex items-center mb-2">
               <Shield className="h-8 w-8 mr-3 text-neon-green" />
-              WHISTLECRYPT PORTAL
+              AleoWhistle PORTAL
             </h1>
             <p className="text-gray-500 font-mono text-sm mb-10">
               Connect an authorized wallet for admin access, or check your report status below.
